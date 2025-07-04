@@ -24,7 +24,7 @@ model CompanyInfo {
 model Customer {
   id        String    @id @default(cuid())
   name      String
-  code      String
+  code      String @unique
   contactPerson String?
   phone     String?   @unique
   address   String?
@@ -40,7 +40,7 @@ model Customer {
 model Product {
   id           String       @id @default(cuid())
   name         String       @unique
-  code      String
+  code      String  @unique
   price        Float        // Price per unit (e.g., per piece, per dozen)
   unit         String       @default("piece") // e.g., "piece", "dozen"
   invoiceItems InvoiceItem[]
@@ -75,13 +75,14 @@ model InvoiceItem {
   product   Product  @relation(fields: [productId], references: [id])
   quantity  Int
   unitPrice Float
-  total     Float
+  total     Float 
 }
 
 // --- Payment Model ---
 // Represents a payment received from a customer.
 model Payment {
   id          String   @id @default(cuid())
+  paymentNumber String  @unique @default(cuid())
   customerId  String
   customer    Customer @relation(fields: [customerId], references: [id])
   invoiceId   String?  // Optional: A payment can be linked to a specific invoice
@@ -89,7 +90,7 @@ model Payment {
   amount      Float
   paymentDate DateTime @default(now())
   notes       String?
-    createdAt    DateTime      @default(now())
+  createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 }
 

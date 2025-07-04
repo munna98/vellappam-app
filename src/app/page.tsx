@@ -20,7 +20,7 @@ async function getDashboardData() {
 
   return {
     totalCustomers,
-    totalProducts,n
+    totalProducts,
     totalInvoices,
     outstandingBalance,
   };

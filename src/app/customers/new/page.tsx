@@ -19,7 +19,7 @@ import { toast } from 'sonner';
 
 // 1. Define your form schema using Zod
 const formSchema = z.object({
-  code: z.string().optional(),
+  code: z.string().min(1, { message: 'Customer code is required.' }),
   name: z.string().min(2, { message: 'Name must be at least 2 characters.' }),
   contactPerson: z.string().optional(),
   phone: z.string().optional(),
