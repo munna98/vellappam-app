@@ -1,28 +1,36 @@
 // src/components/navbar.tsx
-'use client';
+"use client";
 
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import {
   Sheet,
   SheetContent,
   SheetHeader,
   SheetTitle,
   SheetTrigger,
-} from '@/components/ui/sheet';
-import { Separator } from '@/components/ui/separator';
-import { Menu, Package2, DollarSign, Users, Briefcase } from 'lucide-react';
+} from "@/components/ui/sheet";
+import { Separator } from "@/components/ui/separator";
+import {
+  Menu,
+  Package2,
+  DollarSign,
+  Users,
+  Briefcase,
+  ReceiptText,
+} from "lucide-react";
 
 export function Navbar() {
   const pathname = usePathname();
 
   const navItems = [
-    { name: 'Dashboard', href: '/', icon: Briefcase },
-    { name: 'Customers', href: '/customers', icon: Users },
-    { name: 'Products', href: '/products', icon: Package2 },
-    { name: 'Invoices', href: '/invoices', icon: DollarSign },
+    { name: "Dashboard", href: "/", icon: Briefcase },
+    { name: "Customers", href: "/customers", icon: Users },
+    { name: "Products", href: "/products", icon: Package2 },
+    { name: "Invoices", href: "/invoices", icon: DollarSign },
+    { name: "Payments", href: "/payments", icon: ReceiptText },
   ];
 
   return (
@@ -39,8 +47,10 @@ export function Navbar() {
               key={item.name}
               href={item.href}
               className={cn(
-                'transition-colors hover:text-foreground/80',
-                pathname === item.href ? 'text-foreground' : 'text-foreground/60'
+                "transition-colors hover:text-foreground/80",
+                pathname === item.href
+                  ? "text-foreground"
+                  : "text-foreground/60"
               )}
             >
               {item.name}
@@ -62,7 +72,10 @@ export function Navbar() {
                 <SheetTitle>Navigation</SheetTitle>
               </SheetHeader>
               <nav className="grid gap-6 text-lg font-medium pt-4">
-                <Link href="/" className="flex items-center gap-2 font-semibold mb-4">
+                <Link
+                  href="/"
+                  className="flex items-center gap-2 font-semibold mb-4"
+                >
                   <Package2 className="h-6 w-6" />
                   <span className="font-bold text-lg">Vellappam App</span>
                 </Link>
@@ -72,8 +85,10 @@ export function Navbar() {
                     key={item.name}
                     href={item.href}
                     className={cn(
-                      'flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:bg-muted',
-                      pathname === item.href ? 'bg-muted text-foreground' : 'text-muted-foreground'
+                      "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:bg-muted",
+                      pathname === item.href
+                        ? "bg-muted text-foreground"
+                        : "text-muted-foreground"
                     )}
                   >
                     <item.icon className="h-5 w-5" />

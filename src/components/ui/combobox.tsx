@@ -1,5 +1,5 @@
-//src/components/ui/combobox.tsx
-
+// src/components/ui/combobox.tsx
+// (Copy this entire content to overwrite your existing Combobox.tsx)
 'use client';
 import { useState } from 'react';
 import { Check, ChevronsUpDown } from 'lucide-react';
@@ -17,6 +17,8 @@ interface ComboboxProps<T> {
   searchPlaceholder: string;
   displayKey: keyof T;
   valueKey: keyof T;
+  // NEW PROP: Optional function to format the label of each item in the list
+  formatItemLabel?: (item: T) => string;
 }
 
 export function Combobox<T extends { [key: string]: any }>({
@@ -28,8 +30,15 @@ export function Combobox<T extends { [key: string]: any }>({
   searchPlaceholder,
   displayKey,
   valueKey,
+  formatItemLabel, // Destructure the new prop
 }: ComboboxProps<T>) {
   const [open, setOpen] = useState(false);
+
+  // Determine the currently selected item's display value
+  const selectedItemDisplay = value
+    ? items.find((item) => item[valueKey] === value)
+    : null;
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -39,13 +48,13 @@ export function Combobox<T extends { [key: string]: any }>({
           aria-expanded={open}
           className="w-full justify-between"
         >
-          {value
-            ? items.find((item) => item[valueKey] === value)?.[displayKey]
+          {selectedItemDisplay
+            ? (formatItemLabel ? formatItemLabel(selectedItemDisplay) : String(selectedItemDisplay[displayKey]))
             : placeholder}
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[300px] p-0">
+      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0"> {/* Adjusted width for better fit */}
         <Command>
           <CommandInput placeholder={searchPlaceholder} />
           <CommandEmpty>{emptyMessage}</CommandEmpty>
@@ -53,7 +62,7 @@ export function Combobox<T extends { [key: string]: any }>({
             {items.map((item) => (
               <CommandItem
                 key={String(item[valueKey])}
-                value={String(item[displayKey])}
+                value={String(item[displayKey])} // Value for keyboard navigation/search
                 onSelect={() => {
                   onSelect(String(item[valueKey]));
                   setOpen(false);
@@ -65,7 +74,8 @@ export function Combobox<T extends { [key: string]: any }>({
                     value === item[valueKey] ? 'opacity-100' : 'opacity-0'
                   )}
                 />
-                {item[displayKey]}
+                {/* Use formatItemLabel if provided, otherwise fallback to displayKey */}
+                {formatItemLabel ? formatItemLabel(item) : String(item[displayKey])}
               </CommandItem>
             ))}
           </CommandGroup>

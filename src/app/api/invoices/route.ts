@@ -1,9 +1,39 @@
 // src/app/api/invoices/route.ts
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-import { InvoiceStatus } from '@prisma/client';
+import { InvoiceStatus } from '@prisma/client'; // Make sure InvoiceStatus is imported
 
-// POST /api/invoices
+// GET /api/invoices
+// Allows filtering by status: /api/invoices?status=PENDING
+export async function GET(request: Request) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const status = searchParams.get('status');
+
+    const whereClause: { status?: InvoiceStatus } = {};
+    if (status && Object.values(InvoiceStatus).includes(status as InvoiceStatus)) {
+      whereClause.status = status as InvoiceStatus;
+    }
+
+    const invoices = await prisma.invoice.findMany({
+      where: whereClause,
+      include: {
+        customer: {
+          select: { name: true, phone: true }, // Include customer name and phone
+        },
+      },
+      orderBy: {
+        invoiceDate: 'desc', // Order by most recent invoices first
+      },
+    });
+    return NextResponse.json(invoices);
+  } catch (error) {
+    console.error('Error fetching invoices:', error);
+    return NextResponse.json({ error: 'Failed to fetch invoices' }, { status: 500 });
+  }
+}
+
+// POST /api/invoices (Existing code - no change needed here)
 export async function POST(request: Request) {
   try {
     const { customerId, items, notes, totalAmount } = await request.json();
@@ -13,7 +43,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Missing required fields: customerId, items, totalAmount' }, { status: 400 });
     }
 
-    // Use a Prisma transaction to ensure all operations succeed or fail together
     const newInvoice = await prisma.$transaction(async (prisma) => {
       // 1. Create the new Invoice
       const invoice = await prisma.invoice.create({
@@ -55,7 +84,6 @@ export async function POST(request: Request) {
     return NextResponse.json(newInvoice, { status: 201 });
   } catch (error) {
     console.error('Error creating invoice:', error);
-    // Log the full error to understand the issue in case of a failure
     return NextResponse.json({ error: 'Failed to create invoice' }, { status: 500 });
   }
 }

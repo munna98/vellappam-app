@@ -1,16 +1,16 @@
 // src/app/invoices/new/page.tsx
-'use client';
+"use client";
 
-import { useState, useMemo, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { useInvoiceStore } from '@/store/invoice-store';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { toast } from 'sonner';
-import { Plus, X, Search } from 'lucide-react';
-import { Product, Customer } from '@prisma/client';
-import { Combobox } from '@/components/ui/combobox'; 
+import { useState, useMemo, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useInvoiceStore } from "@/store/invoice-store";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
+import { Plus, X, Search } from "lucide-react";
+import { Product, Customer } from "@prisma/client";
+import { Combobox } from "@/components/ui/combobox";
 import {
   Table,
   TableBody,
@@ -18,20 +18,13 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table';
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
-import { Separator } from '@/components/ui/separator';
+} from "@/components/ui/table";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 
 interface ProductWithId extends Product {
   id: string; // Ensure id is defined for the Combobox
 }
-
-
 
 export default function CreateInvoicePage() {
   const router = useRouter();
@@ -48,9 +41,11 @@ export default function CreateInvoicePage() {
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [products, setProducts] = useState<ProductWithId[]>([]);
-  const [notes, setNotes] = useState('');
+  const [notes, setNotes] = useState("");
 
-  const [selectedProductToAdd, setSelectedProductToAdd] = useState<string | null>(null);
+  const [selectedProductToAdd, setSelectedProductToAdd] = useState<
+    string | null
+  >(null);
   const [quantityToAdd, setQuantityToAdd] = useState<number>(1);
 
   // --- Fetch Customers and Products on component mount ---
@@ -58,12 +53,12 @@ export default function CreateInvoicePage() {
     const fetchData = async () => {
       try {
         const [customersRes, productsRes] = await Promise.all([
-          fetch('/api/customers'),
-          fetch('/api/products'),
+          fetch("/api/customers"),
+          fetch("/api/products"),
         ]);
 
         if (!customersRes.ok || !productsRes.ok) {
-          throw new Error('Failed to fetch data');
+          throw new Error("Failed to fetch data");
         }
 
         const customersData: Customer[] = await customersRes.json();
@@ -72,8 +67,8 @@ export default function CreateInvoicePage() {
         setCustomers(customersData);
         setProducts(productsData);
       } catch (error) {
-        console.error('Error fetching data:', error);
-        toast.error('Failed to load customers or products.');
+        console.error("Error fetching data:", error);
+        toast.error("Failed to load customers or products.");
       }
     };
 
@@ -87,17 +82,17 @@ export default function CreateInvoicePage() {
 
   // Find the selected customer object
   const customerForCombobox = useMemo(() => {
-    return customers.find(c => c.id === selectedCustomer?.id) || null;
+    return customers.find((c) => c.id === selectedCustomer?.id) || null;
   }, [customers, selectedCustomer]);
 
   // Add product to the invoice items list in the Zustand store
   const handleAddProduct = () => {
     if (!selectedProductToAdd || quantityToAdd <= 0) {
-      toast.error('Please select a product and enter a valid quantity.');
+      toast.error("Please select a product and enter a valid quantity.");
       return;
     }
 
-    const product = products.find(p => p.id === selectedProductToAdd);
+    const product = products.find((p) => p.id === selectedProductToAdd);
     if (product) {
       addItem(product, quantityToAdd);
       // Reset product selection and quantity for next item
@@ -109,18 +104,18 @@ export default function CreateInvoicePage() {
   // Handle invoice submission
   const handleSaveInvoice = async () => {
     if (!selectedCustomer) {
-      toast.error('Please select a customer.');
+      toast.error("Please select a customer.");
       return;
     }
     if (invoiceItems.length === 0) {
-      toast.error('Please add at least one product to the invoice.');
+      toast.error("Please add at least one product to the invoice.");
       return;
     }
 
     try {
-      const response = await fetch('/api/invoices', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const response = await fetch("/api/invoices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           customerId: selectedCustomer.id,
           items: invoiceItems,
@@ -130,25 +125,22 @@ export default function CreateInvoicePage() {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to save invoice');
+        throw new Error("Failed to save invoice");
       }
 
-      toast.success('Invoice created successfully!');
+      toast.success("Invoice created successfully!");
       resetForm(); // Reset the store state
-      router.push('/invoices'); // Redirect to the invoices list page
+      router.push("/invoices"); // Redirect to the invoices list page
     } catch (error) {
       console.error(error);
-      toast.error('Error saving invoice.');
+      toast.error("Error saving invoice.");
     }
   };
 
   return (
     <div className="container mx-auto py-10">
-      <h1 className="text-4xl font-bold mb-8 text-center">New Invoice</h1>
+      <h1 className="text-3xl font-bold mb-8">New Invoice</h1>
       <Card className="max-w-4xl mx-auto p-6 space-y-8">
-        <CardHeader className="p-0">
-          <CardTitle className="text-2xl">Invoice Details</CardTitle>
-        </CardHeader>
         <CardContent className="p-0 space-y-6">
           {/* --- Customer Selection --- */}
           <div className="grid md:grid-cols-2 gap-6">
@@ -157,7 +149,9 @@ export default function CreateInvoicePage() {
               <Combobox
                 items={customers}
                 value={selectedCustomer?.id || null}
-                onSelect={(id) => setCustomer(customers.find(c => c.id === id) || null)}
+                onSelect={(id) =>
+                  setCustomer(customers.find((c) => c.id === id) || null)
+                }
                 placeholder="Select a customer..."
                 emptyMessage="No customer found."
                 searchPlaceholder="Search customers..."
@@ -167,14 +161,22 @@ export default function CreateInvoicePage() {
               {selectedCustomer && (
                 <div className="mt-2 p-4 border rounded-md bg-muted/50">
                   <p className="font-semibold">{selectedCustomer.name}</p>
-                  <p className="text-sm text-muted-foreground">{selectedCustomer.address}</p>
-                  <p className="text-sm text-muted-foreground">Phone: {selectedCustomer.phone}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {selectedCustomer.address}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Phone: {selectedCustomer.phone}
+                  </p>
                 </div>
               )}
             </div>
             <div>
               <Label>Invoice Date</Label>
-              <Input type="date" value={new Date().toISOString().split('T')[0]} readOnly />
+              <Input
+                type="date"
+                value={new Date().toISOString().split("T")[0]}
+                readOnly
+              />
             </div>
           </div>
 
@@ -204,11 +206,16 @@ export default function CreateInvoicePage() {
                   type="number"
                   min="1"
                   value={quantityToAdd}
-                  onChange={(e) => setQuantityToAdd(parseInt(e.target.value) || 1)}
+                  onChange={(e) =>
+                    setQuantityToAdd(parseInt(e.target.value) || 1)
+                  }
                   placeholder="Qty"
                 />
               </div>
-              <Button onClick={handleAddProduct} className="w-full md:w-auto h-10 mt-2 md:mt-0">
+              <Button
+                onClick={handleAddProduct}
+                className="w-full md:w-auto h-10 mt-2 md:mt-0"
+              >
                 <Plus className="h-4 w-4 mr-2" /> Add Item
               </Button>
             </div>
@@ -230,18 +237,29 @@ export default function CreateInvoicePage() {
                   {invoiceItems.map((item) => (
                     <TableRow key={item.productId}>
                       <TableCell>{item.productCode}</TableCell>
-                      <TableCell className="font-medium">{item.productName}</TableCell>
-                      <TableCell className="text-right">₹{item.unitPrice.toFixed(2)}</TableCell>
+                      <TableCell className="font-medium">
+                        {item.productName}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        ₹{item.unitPrice.toFixed(2)}
+                      </TableCell>
                       <TableCell className="w-[100px]">
                         <Input
                           type="number"
                           min="1"
                           value={item.quantity}
-                          onChange={(e) => updateItemQuantity(item.productId, parseInt(e.target.value) || 0)}
+                          onChange={(e) =>
+                            updateItemQuantity(
+                              item.productId,
+                              parseInt(e.target.value) || 0
+                            )
+                          }
                           className="text-right"
                         />
                       </TableCell>
-                      <TableCell className="text-right">₹{item.total.toFixed(2)}</TableCell>
+                      <TableCell className="text-right">
+                        ₹{item.total.toFixed(2)}
+                      </TableCell>
                       <TableCell className="text-right">
                         <Button
                           variant="ghost"
@@ -274,10 +292,14 @@ export default function CreateInvoicePage() {
             <div className="flex flex-col items-end gap-2 text-right">
               <div className="flex justify-between items-center w-full max-w-xs">
                 <span className="text-xl font-bold">Grand Total:</span>
-                <span className="text-3xl font-extrabold text-primary">₹{totalAmount.toFixed(2)}</span>
+                <span className="text-3xl font-extrabold text-primary">
+                  ₹{totalAmount.toFixed(2)}
+                </span>
               </div>
               <div className="flex gap-2 mt-4">
-                <Button variant="outline" onClick={resetForm}>Reset Form</Button>
+                <Button variant="outline" onClick={resetForm}>
+                  Reset Form
+                </Button>
                 <Button onClick={handleSaveInvoice}>Save Invoice</Button>
               </div>
             </div>

@@ -13,7 +13,7 @@ datasource db {
 // --- CompanyInfo Model ---
 // Represents the company's information.
 model CompanyInfo {
-  id          String   @id @default(cuid())
+  id           String  @id @default(cuid())
   businessName String
   address1     String?
   mobile       String?
@@ -22,76 +22,103 @@ model CompanyInfo {
 // --- Customer Model ---
 // Represents a B2B customer (e.g., a restaurant or shop).
 model Customer {
-  id        String    @id @default(cuid())
-  name      String
-  code      String @unique
+  id            String    @id @default(cuid())
+  name          String
+  code          String    @unique
   contactPerson String?
-  phone     String?   @unique
-  address   String?
-  balance   Float     @default(0.0) // Tracks outstanding balance
-  invoices  Invoice[]
-  payments  Payment[]
-    createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  phone         String?   @unique
+  address       String?
+  balance       Float     @default(0.0) // Tracks outstanding balance
+  invoices      Invoice[]
+  payments      Payment[] // Payments made by this customer (direct relation to Payment model)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 }
 
 // --- Product Model ---
 // Represents a product being sold (e.g., Vallappam, Pathiri, Porotta).
 model Product {
-  id           String       @id @default(cuid())
-  name         String       @unique
-  code      String  @unique
-  price        Float        // Price per unit (e.g., per piece, per dozen)
-  unit         String       @default("piece") // e.g., "piece", "dozen"
+  id          String        @id @default(cuid())
+  name        String        @unique
+  code        String        @unique
+  price       Float         // Price per unit (e.g., per piece, per dozen)
+  unit        String        @default("piece") // e.g., "piece", "dozen"
   invoiceItems InvoiceItem[]
-    createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
 }
 
 // --- Invoice Model ---
 // Represents a single invoice for a customer.
 model Invoice {
-  id           String        @id @default(cuid())
+  id            String        @id @default(cuid())
   invoiceNumber String        @unique @default(cuid()) // A human-readable invoice number
-  customerId   String
-  customer     Customer      @relation(fields: [customerId], references: [id])
-  invoiceDate  DateTime      @default(now())
-  totalAmount  Float
-  status       InvoiceStatus @default(PENDING)
-  notes        String?
-  items        InvoiceItem[]
-  payments     Payment[]
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  customerId    String
+  customer      Customer      @relation(fields: [customerId], references: [id])
+  invoiceDate   DateTime      @default(now())
+  totalAmount   Float
+  paidAmount    Float         @default(0.0) // Tracks how much has been paid for this specific invoice
+  status        InvoiceStatus @default(PENDING)
+  notes         String?
+  items         InvoiceItem[]
+
+  // UPDATED: Now links to the PaymentAllocation junction table
+  paymentAllocations PaymentAllocation[]
+
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 }
 
 // --- Invoice Item Model ---
 // Represents a line item on an invoice.
 model InvoiceItem {
-  id        String   @id @default(cuid())
-  invoiceId String
-  invoice   Invoice  @relation(fields: [invoiceId], references: [id])
-  productId String
-  product   Product  @relation(fields: [productId], references: [id])
-  quantity  Int
-  unitPrice Float
-  total     Float 
+  id          String  @id @default(cuid())
+  invoiceId   String
+  invoice     Invoice @relation(fields: [invoiceId], references: [id])
+  productId   String
+  product     Product @relation(fields: [productId], references: [id])
+  quantity    Int
+  unitPrice   Float
+  total       Float
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt // FIX APPLIED HERE: Added @default(now())
 }
 
 // --- Payment Model ---
 // Represents a payment received from a customer.
 model Payment {
+  id              String  @id @default(cuid())
+  paymentNumber   String  @unique @default(cuid())
+  customerId      String
+  customer        Customer @relation(fields: [customerId], references: [id])
+  // REMOVED: invoiceId and invoice fields - these created a 1-to-many relationship
+  // invoiceId       String?
+  // invoice         Invoice? @relation(fields: [invoiceId], references: [id])
+  amount          Float                         // Total amount of this payment
+  paymentDate     DateTime @default(now())
+  notes           String?
+
+  // UPDATED: Now links to the PaymentAllocation junction table
+  paymentAllocations PaymentAllocation[]
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// --- NEW JUNCTION TABLE: PaymentAllocation ---
+// This model represents a specific portion of a payment applied to a specific invoice.
+// It acts as the "through" table for the many-to-many relationship between Payment and Invoice.
+model PaymentAllocation {
   id          String   @id @default(cuid())
-  paymentNumber String  @unique @default(cuid())
-  customerId  String
-  customer    Customer @relation(fields: [customerId], references: [id])
-  invoiceId   String?  // Optional: A payment can be linked to a specific invoice
-  invoice     Invoice? @relation(fields: [invoiceId], references: [id])
-  amount      Float
-  paymentDate DateTime @default(now())
-  notes       String?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  paymentId   String
+  payment     Payment  @relation(fields: [paymentId], references: [id])
+  invoiceId   String
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id])
+  allocatedAmount Float    // The portion of the payment amount applied to this specific invoice
+  allocatedAt DateTime @default(now())
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 // --- Invoice Status Enum ---
