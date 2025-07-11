@@ -1,5 +1,4 @@
 // src/components/ui/combobox.tsx
-// (Copy this entire content to overwrite your existing Combobox.tsx)
 'use client';
 import { useState } from 'react';
 import { Check, ChevronsUpDown } from 'lucide-react';
@@ -17,7 +16,6 @@ interface ComboboxProps<T> {
   searchPlaceholder: string;
   displayKey: keyof T;
   valueKey: keyof T;
-  // NEW PROP: Optional function to format the label of each item in the list
   formatItemLabel?: (item: T) => string;
 }
 
@@ -30,11 +28,10 @@ export function Combobox<T extends { [key: string]: any }>({
   searchPlaceholder,
   displayKey,
   valueKey,
-  formatItemLabel, // Destructure the new prop
+  formatItemLabel,
 }: ComboboxProps<T>) {
   const [open, setOpen] = useState(false);
 
-  // Determine the currently selected item's display value
   const selectedItemDisplay = value
     ? items.find((item) => item[valueKey] === value)
     : null;
@@ -54,7 +51,8 @@ export function Combobox<T extends { [key: string]: any }>({
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0"> {/* Adjusted width for better fit */}
+      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0">
+        {/* The <Command> component is responsible for keyboard navigation */}
         <Command>
           <CommandInput placeholder={searchPlaceholder} />
           <CommandEmpty>{emptyMessage}</CommandEmpty>
@@ -62,7 +60,7 @@ export function Combobox<T extends { [key: string]: any }>({
             {items.map((item) => (
               <CommandItem
                 key={String(item[valueKey])}
-                value={String(item[displayKey])} // Value for keyboard navigation/search
+                value={String(item[displayKey])} // This 'value' is critical for keyboard nav
                 onSelect={() => {
                   onSelect(String(item[valueKey]));
                   setOpen(false);
@@ -74,7 +72,6 @@ export function Combobox<T extends { [key: string]: any }>({
                     value === item[valueKey] ? 'opacity-100' : 'opacity-0'
                   )}
                 />
-                {/* Use formatItemLabel if provided, otherwise fallback to displayKey */}
                 {formatItemLabel ? formatItemLabel(item) : String(item[displayKey])}
               </CommandItem>
             ))}

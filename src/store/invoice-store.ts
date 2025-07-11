@@ -1,119 +1,123 @@
 // src/store/invoice-store.ts
 import { create } from 'zustand';
-import { Customer, Product } from '@prisma/client';
+import { Product, Customer } from '@prisma/client';
 
-// Define the shape of a line item in the invoice creation form
 export interface InvoiceItem {
   productId: string;
   productName: string;
-  productCode: string; // Add product code for display
-  unitPrice: number;
+  productCode: string;
+  unitPrice: number; // The price for this specific invoice item
   quantity: number;
-  total: number;
+  total: number; // unitPrice * quantity
 }
 
-// Define the state of our invoice form
 interface InvoiceState {
   selectedCustomer: Customer | null;
   invoiceItems: InvoiceItem[];
   totalAmount: number;
-}
-
-// Define the actions to update the state
-interface InvoiceActions {
   setCustomer: (customer: Customer | null) => void;
-  addItem: (product: Product, quantity?: number) => void; // Action to add a product to the items list
-  updateItemQuantity: (productId: string, quantity: number) => void;
+  // Modified: addItem now accepts an optional customUnitPrice
+  addItem: (product: Product, quantity: number, customUnitPrice?: number) => void;
+  // New: Flexible action to update quantity, unitPrice, or both
+  updateItemDetails: (productId: string, newQuantity?: number, newUnitPrice?: number) => void;
   removeItem: (productId: string) => void;
   resetForm: () => void;
 }
 
-// Combine state and actions into one type
-type InvoiceStore = InvoiceState & InvoiceActions;
+const calculateTotalAmount = (items: InvoiceItem[]): number => {
+  return items.reduce((sum, item) => sum + item.total, 0);
+};
 
-// Create the Zustand store
-export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
-  // --- State ---
+export const useInvoiceStore = create<InvoiceState>((set, get) => ({
   selectedCustomer: null,
   invoiceItems: [],
   totalAmount: 0,
 
-  // --- Actions ---
   setCustomer: (customer) => set({ selectedCustomer: customer }),
 
-  addItem: (product, quantity = 1) => {
+  addItem: (product, quantity, customUnitPrice) => {
     set((state) => {
-      // Find if the item already exists in the list
-      const existingItem = state.invoiceItems.find(item => item.productId === product.id);
-      
-      let updatedItems: InvoiceItem[];
-      
-      if (existingItem) {
-        // If it exists, update the quantity and total
-        updatedItems = state.invoiceItems.map(item =>
-          item.productId === product.id
-            ? { ...item, quantity: item.quantity + quantity, total: item.unitPrice * (item.quantity + quantity) }
-            : item
-        );
+      const existingItemIndex = state.invoiceItems.findIndex(
+        (item) => item.productId === product.id
+      );
+
+      // Determine the price to use for the new item.
+      // If customUnitPrice is provided, use it; otherwise, use the product's default price.
+      const priceToUse = customUnitPrice !== undefined ? customUnitPrice : product.price;
+
+      if (existingItemIndex > -1) {
+        // If product already exists, update its quantity and recalculate total
+        const updatedItems = state.invoiceItems.map((item, index) => {
+          if (index === existingItemIndex) {
+            const newQuantity = item.quantity + quantity;
+            const newTotal = newQuantity * item.unitPrice; // Use existing unitPrice for calculation
+            return { ...item, quantity: newQuantity, total: newTotal };
+          }
+          return item;
+        });
+        return {
+          invoiceItems: updatedItems,
+          totalAmount: calculateTotalAmount(updatedItems),
+        };
       } else {
-        // If it's a new item, just add it
+        // Add new item to the list
         const newItem: InvoiceItem = {
           productId: product.id,
           productName: product.name,
           productCode: product.code,
-          unitPrice: product.price,
+          unitPrice: priceToUse, // Set the unit price for this invoice item
           quantity: quantity,
-          total: product.price * quantity,
+          total: priceToUse * quantity,
         };
-        updatedItems = [...state.invoiceItems, newItem];
+        const updatedItems = [...state.invoiceItems, newItem];
+        return {
+          invoiceItems: updatedItems,
+          totalAmount: calculateTotalAmount(updatedItems),
+        };
       }
-
-      // Recalculate the total amount for the entire invoice
-      const newTotalAmount = updatedItems.reduce((sum, item) => sum + item.total, 0);
-
-      return {
-        invoiceItems: updatedItems,
-        totalAmount: newTotalAmount,
-      };
     });
   },
 
-  updateItemQuantity: (productId, quantity) => {
+  updateItemDetails: (productId, newQuantity, newUnitPrice) => {
     set((state) => {
-      let updatedItems: InvoiceItem[];
+      const updatedItems = state.invoiceItems.map((item) => {
+        if (item.productId === productId) {
+          // Use provided new values, or fallback to current item values
+          const quantity = newQuantity !== undefined ? newQuantity : item.quantity;
+          const unitPrice = newUnitPrice !== undefined ? newUnitPrice : item.unitPrice;
 
-      if (quantity <= 0) {
-        // If quantity is 0 or less, remove the item
-        updatedItems = state.invoiceItems.filter(item => item.productId !== productId);
-      } else {
-        // Otherwise, update the quantity and total for the specific item
-        updatedItems = state.invoiceItems.map(item =>
-          item.productId === productId
-            ? { ...item, quantity, total: item.unitPrice * quantity }
-            : item
-        );
-      }
-      
-      // Recalculate the total amount for the entire invoice
-      const newTotalAmount = updatedItems.reduce((sum, item) => sum + item.total, 0);
+          // Ensure quantity and unitPrice are not negative
+          const safeQuantity = Math.max(0, quantity);
+          const safeUnitPrice = Math.max(0, unitPrice);
 
+          const newTotal = safeQuantity * safeUnitPrice;
+          return { ...item, quantity: safeQuantity, unitPrice: safeUnitPrice, total: newTotal };
+        }
+        return item;
+      });
       return {
         invoiceItems: updatedItems,
-        totalAmount: newTotalAmount,
+        totalAmount: calculateTotalAmount(updatedItems),
       };
     });
   },
 
   removeItem: (productId) => {
     set((state) => {
-      const updatedItems = state.invoiceItems.filter(item => item.productId !== productId);
-      const newTotalAmount = updatedItems.reduce((sum, item) => sum + item.total, 0);
+      const updatedItems = state.invoiceItems.filter(
+        (item) => item.productId !== productId
+      );
       return {
         invoiceItems: updatedItems,
-        totalAmount: newTotalAmount,
+        totalAmount: calculateTotalAmount(updatedItems),
       };
     });
   },
 
-  resetForm: () => set({ selectedCustomer: null, invoiceItems: [], totalAmount: 0 }),
+  resetForm: () =>
+    set({
+      selectedCustomer: null,
+      invoiceItems: [],
+      totalAmount: 0,
+    }),
 }));

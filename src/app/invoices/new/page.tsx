@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { Plus, X, Search } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import { Product, Customer } from "@prisma/client";
 import { Combobox } from "@/components/ui/combobox";
 import {
@@ -34,7 +34,7 @@ export default function CreateInvoicePage() {
     totalAmount,
     setCustomer,
     addItem,
-    updateItemQuantity,
+    updateItemDetails,
     removeItem,
     resetForm,
   } = useInvoiceStore();
@@ -43,10 +43,9 @@ export default function CreateInvoicePage() {
   const [products, setProducts] = useState<ProductWithId[]>([]);
   const [notes, setNotes] = useState("");
 
-  const [selectedProductToAdd, setSelectedProductToAdd] = useState<
-    string | null
-  >(null);
+  const [selectedProductToAdd, setSelectedProductToAdd] = useState<string | null>(null);
   const [quantityToAdd, setQuantityToAdd] = useState<number>(1);
+  const [unitPriceToAdd, setUnitPriceToAdd] = useState<number>(0);
 
   // --- Fetch Customers and Products on component mount ---
   useEffect(() => {
@@ -80,24 +79,31 @@ export default function CreateInvoicePage() {
     };
   }, [resetForm]);
 
-  // Find the selected customer object
-  const customerForCombobox = useMemo(() => {
-    return customers.find((c) => c.id === selectedCustomer?.id) || null;
-  }, [customers, selectedCustomer]);
+  // Update unitPriceToAdd when a product is selected in the "Add Product" combobox
+  useEffect(() => {
+    if (selectedProductToAdd) {
+      const product = products.find((p) => p.id === selectedProductToAdd);
+      if (product) {
+        setUnitPriceToAdd(product.price); // Set default price from product
+      }
+    } else {
+      setUnitPriceToAdd(0); // Reset if no product is selected
+    }
+  }, [selectedProductToAdd, products]);
 
   // Add product to the invoice items list in the Zustand store
   const handleAddProduct = () => {
-    if (!selectedProductToAdd || quantityToAdd <= 0) {
-      toast.error("Please select a product and enter a valid quantity.");
+    if (!selectedProductToAdd || quantityToAdd <= 0 || unitPriceToAdd <= 0) {
+      toast.error("Please select a product, enter a valid quantity, and a valid unit price.");
       return;
     }
 
     const product = products.find((p) => p.id === selectedProductToAdd);
     if (product) {
-      addItem(product, quantityToAdd);
-      // Reset product selection and quantity for next item
+      addItem(product, quantityToAdd, unitPriceToAdd);
       setSelectedProductToAdd(null);
       setQuantityToAdd(1);
+      setUnitPriceToAdd(0); // Reset unit price after adding
     }
   };
 
@@ -109,6 +115,12 @@ export default function CreateInvoicePage() {
     }
     if (invoiceItems.length === 0) {
       toast.error("Please add at least one product to the invoice.");
+      return;
+    }
+
+    const hasInvalidItems = invoiceItems.some(item => item.quantity <= 0 || item.unitPrice <= 0);
+    if (hasInvalidItems) {
+      toast.error("All invoice items must have positive quantity and unit price.");
       return;
     }
 
@@ -125,15 +137,16 @@ export default function CreateInvoicePage() {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to save invoice");
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Failed to save invoice");
       }
 
       toast.success("Invoice created successfully!");
-      resetForm(); // Reset the store state
-      router.push("/invoices"); // Redirect to the invoices list page
-    } catch (error) {
+      resetForm();
+      router.push("/invoices");
+    } catch (error: any) {
       console.error(error);
-      toast.error("Error saving invoice.");
+      toast.error(error.message || "Error saving invoice.");
     }
   };
 
@@ -157,20 +170,12 @@ export default function CreateInvoicePage() {
                 searchPlaceholder="Search customers..."
                 displayKey="name"
                 valueKey="id"
+                formatItemLabel={(customer: Customer) =>
+                  `${customer.name} (Bal: ₹${customer.balance.toFixed(2)})`
+                }
               />
-              {selectedCustomer && (
-                <div className="mt-2 p-4 border rounded-md bg-muted/50">
-                  <p className="font-semibold">{selectedCustomer.name}</p>
-                  <p className="text-sm text-muted-foreground">
-                    {selectedCustomer.address}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    Phone: {selectedCustomer.phone}
-                  </p>
-                </div>
-              )}
             </div>
-            <div>
+            <div className="space-y-2">
               <Label>Invoice Date</Label>
               <Input
                 type="date"
@@ -185,8 +190,9 @@ export default function CreateInvoicePage() {
           {/* --- Product Line Items --- */}
           <div className="space-y-4">
             <h3 className="text-lg font-semibold">Products</h3>
-            <div className="flex flex-col md:flex-row gap-4 items-end">
-              <div className="flex-1 space-y-2">
+            {/* UPDATED LAYOUT: Use flex for horizontal alignment with adjusted widths */}
+            <div className="flex flex-wrap items-end gap-4">
+              <div className="flex-1 min-w-[200px] sm:min-w-[250px] md:min-w-[300px] space-y-2"> {/* Product Combobox - More flexible width */}
                 <Label htmlFor="product">Add Product</Label>
                 <Combobox
                   items={products}
@@ -197,24 +203,43 @@ export default function CreateInvoicePage() {
                   searchPlaceholder="Search products..."
                   displayKey="name"
                   valueKey="id"
+                  formatItemLabel={(product: ProductWithId) =>
+                    `${product.name} (₹${product.price.toFixed(2)} / ${product.unit})`
+                  }
                 />
               </div>
-              <div className="w-full md:w-32 space-y-2">
+              <div className="w-full sm:w-[120px] space-y-2"> {/* Unit Price Input - Fixed width on sm+ */}
+                <Label htmlFor="unitPriceAdd">Unit Price</Label>
+                <Input
+                  id="unitPriceAdd"
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={unitPriceToAdd === 0 ? '' : unitPriceToAdd}
+                  onChange={(e) =>
+                    setUnitPriceToAdd(parseFloat(e.target.value) || 0)
+                  }
+                  placeholder="Price"
+                  className="text-right"
+                />
+              </div>
+              <div className="w-full sm:w-[80px] space-y-2"> {/* Quantity Input - Fixed width on sm+ */}
                 <Label htmlFor="quantity">Qty</Label>
                 <Input
                   id="quantity"
                   type="number"
                   min="1"
-                  value={quantityToAdd}
+                  value={quantityToAdd === 0 ? '' : quantityToAdd}
                   onChange={(e) =>
                     setQuantityToAdd(parseInt(e.target.value) || 1)
                   }
                   placeholder="Qty"
+                  className="text-right"
                 />
               </div>
               <Button
                 onClick={handleAddProduct}
-                className="w-full md:w-auto h-10 mt-2 md:mt-0"
+                className="w-full sm:w-auto h-10 flex-shrink-0"
               >
                 <Plus className="h-4 w-4 mr-2" /> Add Item
               </Button>
@@ -227,7 +252,7 @@ export default function CreateInvoicePage() {
                   <TableRow>
                     <TableHead>Code</TableHead>
                     <TableHead>Product</TableHead>
-                    <TableHead className="text-right">Unit Price</TableHead>
+                    <TableHead className="text-right">Unit Price (₹)</TableHead>
                     <TableHead className="text-right">Qty</TableHead>
                     <TableHead className="text-right">Total</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
@@ -240,18 +265,33 @@ export default function CreateInvoicePage() {
                       <TableCell className="font-medium">
                         {item.productName}
                       </TableCell>
-                      <TableCell className="text-right">
-                        ₹{item.unitPrice.toFixed(2)}
+                      {/* FIXED: Editable Unit Price in Table */}
+                      <TableCell className="w-[120px]">
+                        <Input
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          value={item.unitPrice === 0 ? '' : item.unitPrice}
+                          onChange={(e) =>
+                            updateItemDetails(
+                              item.productId,
+                              undefined,
+                              parseFloat(e.target.value) || 0
+                            )
+                          }
+                          className="text-right"
+                        />
                       </TableCell>
                       <TableCell className="w-[100px]">
                         <Input
                           type="number"
                           min="1"
-                          value={item.quantity}
+                          value={item.quantity === 0 ? '' : item.quantity}
                           onChange={(e) =>
-                            updateItemQuantity(
+                            updateItemDetails(
                               item.productId,
-                              parseInt(e.target.value) || 0
+                              parseInt(e.target.value) || 0,
+                              undefined
                             )
                           }
                           className="text-right"
