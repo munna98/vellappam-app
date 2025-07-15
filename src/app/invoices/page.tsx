@@ -10,14 +10,14 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
-import { PlusCircle } from 'lucide-react';
+import { PlusCircle, Edit, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import prisma from '@/lib/prisma';
 import { InvoiceStatus } from '@prisma/client';
 import { format } from 'date-fns';
-import { InvoiceFilter } from './_components/invoice-filter'; // We'll create this
+import { InvoiceFilter } from './_components/invoice-filter';
+import { DeleteInvoiceButton } from './_components/delete-invoice-button'; 
 
-// Fetch invoices from the database (Server Component function)
 async function getInvoices(statusFilter?: InvoiceStatus) {
   const whereClause: { status?: InvoiceStatus } = {};
   if (statusFilter && Object.values(InvoiceStatus).includes(statusFilter)) {
@@ -38,7 +38,6 @@ async function getInvoices(statusFilter?: InvoiceStatus) {
   return invoices;
 }
 
-// Main Invoice Page (Server Component)
 export default async function InvoicesPage({
   searchParams,
 }: {
@@ -58,7 +57,7 @@ export default async function InvoicesPage({
         </Link>
       </div>
 
-      <InvoiceFilter currentStatus={statusFilter} /> {/* Client Component for filtering */}
+      <InvoiceFilter currentStatus={statusFilter} />
 
       <Suspense fallback={<div>Loading invoices...</div>}>
         <InvoiceTable invoices={invoices} />
@@ -67,7 +66,6 @@ export default async function InvoicesPage({
   );
 }
 
-// Invoice Table Component (can be a Server or Client Component, here as Server)
 function InvoiceTable({ invoices }: { invoices: any[] }) {
   if (invoices.length === 0) {
     return <p className="mt-4">No invoices found for the selected filter.</p>;
@@ -82,6 +80,7 @@ function InvoiceTable({ invoices }: { invoices: any[] }) {
           <TableHead>Customer</TableHead>
           <TableHead>Date</TableHead>
           <TableHead className="text-right">Total Amount</TableHead>
+          <TableHead className="text-right">Paid Amount</TableHead> {/* New column */}
           <TableHead>Status</TableHead>
           <TableHead className="text-right">Actions</TableHead>
         </TableRow>
@@ -93,6 +92,7 @@ function InvoiceTable({ invoices }: { invoices: any[] }) {
             <TableCell>{invoice.customer?.name || 'N/A'}</TableCell>
             <TableCell>{format(new Date(invoice.invoiceDate), 'PPP')}</TableCell>
             <TableCell className="text-right">₹{invoice.totalAmount.toFixed(2)}</TableCell>
+            <TableCell className="text-right">₹{invoice.paidAmount.toFixed(2)}</TableCell> {/* Display paid amount */}
             <TableCell>
               <span
                 className={`px-2 py-1 rounded-full text-xs font-semibold ${
@@ -107,11 +107,14 @@ function InvoiceTable({ invoices }: { invoices: any[] }) {
               </span>
             </TableCell>
             <TableCell className="text-right">
-              <Link href={`/invoices/${invoice.id}`}>
-                <Button variant="outline" size="sm">
-                  View
-                </Button>
-              </Link>
+              <div className="flex justify-end gap-2">
+                <Link href={`/invoices/${invoice.id}/edit`}> {/* Link to edit page */}
+                  <Button variant="outline" size="sm" className="h-8 w-8 p-0">
+                    <Edit className="h-4 w-4" />
+                  </Button>
+                </Link>
+                <DeleteInvoiceButton invoiceId={invoice.id} invoiceNumber={invoice.invoiceNumber} />
+              </div>
             </TableCell>
           </TableRow>
         ))}

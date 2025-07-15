@@ -1,15 +1,15 @@
-// src/app/invoices/new/page.tsx
+// src/app/invoices/[id]/edit/_components/edit-invoice-form.tsx
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useInvoiceStore } from '@/store/invoice-store';
+import { useInvoiceStore, InvoiceItem as ZustandInvoiceItem } from '@/store/invoice-store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { Plus, X } from 'lucide-react';
-import { Product, Customer } from '@prisma/client';
+import { Product, Customer, Invoice as PrismaInvoice } from '@prisma/client';
 import { Combobox } from '@/components/ui/combobox';
 import {
   Table,
@@ -19,27 +19,20 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 
 interface ProductWithId extends Product {
   id: string;
 }
 
-// Helper function to generate next invoice number (e.g., INV1, INV2)
-const generateNextInvoiceNumber = (lastInvoiceNumber: string | null): string => {
-  if (!lastInvoiceNumber) {
-    return 'INV1';
-  }
-  const match = lastInvoiceNumber.match(/^INV(\d+)$/);
-  if (match) {
-    const lastNumber = parseInt(match[1], 10);
-    return `INV${lastNumber + 1}`;
-  }
-  return 'INV1'; // Fallback if format is unexpected
-};
+// Define props for the EditInvoiceForm
+interface EditInvoiceFormProps {
+  invoice: PrismaInvoice & { customer: Customer }; // Full invoice data from server
+  initialItems: ZustandInvoiceItem[]; // Transformed items for Zustand store
+}
 
-export default function CreateInvoicePage() {
+export function EditInvoiceForm({ invoice, initialItems }: EditInvoiceFormProps) {
   const router = useRouter();
   const {
     selectedCustomer,
@@ -54,14 +47,26 @@ export default function CreateInvoicePage() {
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [products, setProducts] = useState<ProductWithId[]>([]);
-  const [notes, setNotes] = useState('');
-  const [invoiceNumber, setInvoiceNumber] = useState<string>(''); // State for invoice number
+  const [notes, setNotes] = useState(invoice.notes || '');
+  const [invoiceNumber, setInvoiceNumber] = useState(invoice.invoiceNumber);
 
   const [selectedProductToAdd, setSelectedProductToAdd] = useState<string | null>(null);
   const [quantityToAdd, setQuantityToAdd] = useState<number>(1);
   const [unitPriceToAdd, setUnitPriceToAdd] = useState<number>(0);
 
-  // --- Fetch Customers and Products on component mount ---
+  // Initialize Zustand store with existing invoice data on mount
+  useEffect(() => {
+    setCustomer(invoice.customer);
+    // Manually set items, ensuring they have the 'id' property from Prisma
+    useInvoiceStore.setState({ invoiceItems: initialItems, totalAmount: invoice.totalAmount });
+
+    // Cleanup store state when component unmounts
+    return () => {
+      resetForm();
+    };
+  }, [invoice, initialItems, setCustomer, resetForm]);
+
+  // Fetch all customers and products for comboboxes
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -71,7 +76,7 @@ export default function CreateInvoicePage() {
         ]);
 
         if (!customersRes.ok || !productsRes.ok) {
-          throw new Error('Failed to fetch data');
+          throw new Error('Failed to fetch customers or products.');
         }
 
         const customersData: Customer[] = await customersRes.json();
@@ -79,29 +84,15 @@ export default function CreateInvoicePage() {
 
         setCustomers(customersData);
         setProducts(productsData);
-
-        // Fetch last invoice number for auto-generation
-        const lastInvoiceRes = await fetch(
-          '/api/invoices?orderBy=createdAt&direction=desc&limit=1'
-        );
-        const lastInvoices = await lastInvoiceRes.json();
-        const lastInvNumber = lastInvoices.length > 0 ? lastInvoices[0].invoiceNumber : null;
-        setInvoiceNumber(generateNextInvoiceNumber(lastInvNumber));
       } catch (error) {
         console.error('Error fetching data:', error);
-        toast.error('Failed to load customers or products or generate invoice number.');
-        setInvoiceNumber('INV1'); // Fallback
+        toast.error('Failed to load customers or products.');
       }
     };
-
     fetchData();
+  }, []);
 
-    return () => {
-      resetForm();
-    };
-  }, [resetForm]);
-
-  // Update unitPriceToAdd when a product is selected
+  // Update unitPriceToAdd when a product is selected in the "Add Product" combobox
   useEffect(() => {
     if (selectedProductToAdd) {
       const product = products.find((p) => p.id === selectedProductToAdd);
@@ -151,37 +142,35 @@ export default function CreateInvoicePage() {
     }
 
     try {
-      const response = await fetch('/api/invoices', {
-        method: 'POST',
+      const response = await fetch(`/api/invoices/${invoice.id}`, {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          invoiceNumber, // Include invoice number
+          invoiceNumber,
           customerId: selectedCustomer.id,
-          items: invoiceItems,
-          totalAmount,
+          items: invoiceItems, // These now include 'id' for existing items
           notes,
+          // totalAmount is calculated on the backend for safety, but sent here for consistency
+          totalAmount,
         }),
       });
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to save invoice');
+        throw new Error(errorData.error || 'Failed to update invoice');
       }
 
-      toast.success('Invoice created successfully!');
-      resetForm();
-      setInvoiceNumber(generateNextInvoiceNumber(invoiceNumber)); // Generate next number for new form
+      toast.success('Invoice updated successfully!');
       router.push('/invoices');
-      router.refresh(); // Revalidate data on invoice list page
+      router.refresh(); // Revalidate data on the invoice list page
     } catch (error: any) {
       console.error(error);
-      toast.error(error.message || 'Error saving invoice.');
+      toast.error(error.message || 'Error updating invoice.');
     }
   };
 
   return (
     <div className="container mx-auto py-10">
-      <h1 className="text-3xl font-bold mb-8">New Invoice</h1>
       <Card className="max-w-4xl mx-auto p-6 space-y-8">
         <CardContent className="p-0 space-y-6">
           {/* --- Invoice Number & Date & Customer Selection on a single line --- */}
@@ -204,7 +193,7 @@ export default function CreateInvoicePage() {
                 <Label>Invoice Date</Label>
                 <Input
                   type="date"
-                  value={new Date().toISOString().split('T')[0]}
+                  value={new Date(invoice.invoiceDate).toISOString().split('T')[0]} // Use existing invoice date
                   readOnly
                 />
               </div>
@@ -396,7 +385,8 @@ export default function CreateInvoicePage() {
                 <Button variant="outline" onClick={resetForm}>
                   Reset Form
                 </Button>
-                <Button onClick={handleSaveInvoice}>Save Invoice</Button>
+                <Button onClick={handleSaveInvoice}>Save Changes</Button>{' '}
+                {/* Changed text to Save Changes */}
               </div>
             </div>
           </div>

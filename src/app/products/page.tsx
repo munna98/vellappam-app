@@ -10,17 +10,15 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
-import { PlusCircle } from 'lucide-react';
+import { PlusCircle, Edit, Trash2 } from 'lucide-react';
 import Link from 'next/link';
-
-// This is a Server Component, so it can directly access the database via Prisma
 import prisma from '@/lib/prisma';
+import { DeleteProductButton } from './_components/delete-product-button'; 
 
 async function getProducts() {
-  // Fetch products from the database
   const products = await prisma.product.findMany({
     orderBy: {
-      name: 'asc', // Order by product name
+      name: 'asc',
     },
   });
   return products;
@@ -46,7 +44,6 @@ export default async function ProductsPage() {
   );
 }
 
-// A separate component for the table to keep the main page component clean
 function ProductTable({ products }: { products: any[] }) {
   if (products.length === 0) {
     return <p>No products found. Add a new product to get started!</p>;
@@ -54,12 +51,12 @@ function ProductTable({ products }: { products: any[] }) {
 
   return (
     <Table>
-      <TableCaption>A list of your firm's products.</TableCaption>
+      <TableCaption>A list of your available products.</TableCaption>
       <TableHeader>
         <TableRow>
-          <TableHead>Product Code</TableHead>
+          <TableHead>Code</TableHead>
           <TableHead>Product Name</TableHead>
-          <TableHead>Price</TableHead>
+          <TableHead className="text-right">Price</TableHead>
           <TableHead>Unit</TableHead>
           <TableHead className="text-right">Actions</TableHead>
         </TableRow>
@@ -67,15 +64,19 @@ function ProductTable({ products }: { products: any[] }) {
       <TableBody>
         {products.map((product) => (
           <TableRow key={product.id}>
-            <TableCell className="font-medium">{product.code}</TableCell>
-            <TableCell>{product.name}</TableCell>
-            <TableCell>₹{product.price.toFixed(2)}</TableCell>
+            <TableCell className="font-mono text-sm">{product.code}</TableCell>
+            <TableCell className="font-medium">{product.name}</TableCell>
+            <TableCell className="text-right">₹{product.price.toFixed(2)}</TableCell>
             <TableCell>{product.unit}</TableCell>
             <TableCell className="text-right">
-              {/* You can add a link to a view/edit page here later */}
-              <Button variant="outline" size="sm" disabled>
-                View
-              </Button>
+              <div className="flex justify-end gap-2">
+                <Link href={`/products/${product.id}/edit`}>
+                  <Button variant="outline" size="sm" className="h-8 w-8 p-0">
+                    <Edit className="h-4 w-4" />
+                  </Button>
+                </Link>
+                <DeleteProductButton productId={product.id} productName={product.name} />
+              </div>
             </TableCell>
           </TableRow>
         ))}

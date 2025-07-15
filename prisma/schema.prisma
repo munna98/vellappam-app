@@ -91,9 +91,6 @@ model Payment {
   paymentNumber   String  @unique @default(cuid())
   customerId      String
   customer        Customer @relation(fields: [customerId], references: [id])
-  // REMOVED: invoiceId and invoice fields - these created a 1-to-many relationship
-  // invoiceId       String?
-  // invoice         Invoice? @relation(fields: [invoiceId], references: [id])
   amount          Float                         // Total amount of this payment
   paymentDate     DateTime @default(now())
   notes           String?

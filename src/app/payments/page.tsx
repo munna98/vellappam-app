@@ -10,10 +10,11 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
-import { PlusCircle } from 'lucide-react';
+import { PlusCircle, Edit, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import prisma from '@/lib/prisma';
 import { format } from 'date-fns';
+import { DeletePaymentButton } from './_components/delete-payment-button';
 
 async function getPayments() {
   const payments = await prisma.payment.findMany({
@@ -21,11 +22,10 @@ async function getPayments() {
       customer: {
         select: { name: true, phone: true },
       },
-      // Now include paymentAllocations instead of direct invoice relation
       paymentAllocations: {
         include: {
           invoice: {
-            select: { invoiceNumber: true, id: true }, // Select necessary invoice details
+            select: { invoiceNumber: true, id: true, totalAmount: true, paidAmount: true },
           },
         },
       },
@@ -35,14 +35,16 @@ async function getPayments() {
     },
   });
 
-  // Transform the data to flatten payment allocations for easier rendering
-  const formattedPayments = payments.map(payment => ({
-    ...payment,
-    allocatedInvoices: payment.paymentAllocations.map(pa => ({
+  // Transform payments to flatten allocations for display
+  const formattedPayments = payments.map(p => ({
+    ...p,
+    allocatedTo: p.paymentAllocations.map(pa => ({
       invoiceId: pa.invoice.id,
       invoiceNumber: pa.invoice.invoiceNumber,
       allocatedAmount: pa.allocatedAmount,
-    })),
+      invoiceTotal: pa.invoice.totalAmount,
+      invoicePaidAmount: pa.invoice.paidAmount,
+    }))
   }));
 
   return formattedPayments;
@@ -61,7 +63,6 @@ export default async function PaymentsPage() {
           </Button>
         </Link>
       </div>
-
       <Suspense fallback={<div>Loading payments...</div>}>
         <PaymentTable payments={payments} />
       </Suspense>
@@ -69,48 +70,54 @@ export default async function PaymentsPage() {
   );
 }
 
-function PaymentTable({ payments }: { payments: any[] }) { // Using 'any' for simplicity due to nested objects
+function PaymentTable({ payments }: { payments: any[] }) {
   if (payments.length === 0) {
-    return <p className="mt-4">No payments recorded yet.</p>;
+    return <p className="mt-4">No payments found. Record a new payment to get started!</p>;
   }
 
   return (
     <Table className="mt-4">
-      <TableCaption>A list of all recorded payments and their allocations.</TableCaption>
+      <TableCaption>A list of recorded payments.</TableCaption>
       <TableHeader>
         <TableRow>
           <TableHead>Payment #</TableHead>
-          <TableHead>Payment Date</TableHead>
           <TableHead>Customer</TableHead>
-          <TableHead className="text-right">Amount</TableHead>
-          <TableHead>Allocated To</TableHead> {/* New column for allocations */}
-          <TableHead>Notes</TableHead>
+          <TableHead>Date</TableHead>
+          {/* Removed Payment Method column */}
+          <TableHead className="text-right">Amount (₹)</TableHead>
+          <TableHead>Allocated Invoices</TableHead>
+          <TableHead className="text-right">Actions</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {payments.map((payment) => (
           <TableRow key={payment.id}>
             <TableCell className="font-medium">{payment.paymentNumber}</TableCell>
-            <TableCell>{format(new Date(payment.paymentDate), 'PPP')}</TableCell>
             <TableCell>{payment.customer?.name || 'N/A'}</TableCell>
+            <TableCell>{format(new Date(payment.paymentDate), 'PPP')}</TableCell>
+            {/* Removed Payment Method cell */}
             <TableCell className="text-right">₹{payment.amount.toFixed(2)}</TableCell>
-            <TableCell>
-              {payment.allocatedInvoices && payment.allocatedInvoices.length > 0 ? (
-                <div className="space-y-1">
-                  {payment.allocatedInvoices.map((alloc: any, index: number) => (
-                    <div key={index} className="flex justify-between items-center text-sm">
-                      <Link href={`/invoices/${alloc.invoiceId}`} className="text-blue-600 hover:underline">
-                        Inv #{alloc.invoiceNumber}
-                      </Link>
-                      <span className="font-semibold ml-2">₹{alloc.allocatedAmount.toFixed(2)}</span>
-                    </div>
-                  ))}
-                </div>
+            <TableCell className="text-sm text-muted-foreground">
+              {payment.allocatedTo && payment.allocatedTo.length > 0 ? (
+                payment.allocatedTo.map((alloc: any) => (
+                  <div key={alloc.invoiceId}>
+                    {alloc.invoiceNumber} (₹{alloc.allocatedAmount.toFixed(2)})
+                  </div>
+                ))
               ) : (
-                'No specific allocation'
+                'None'
               )}
             </TableCell>
-            <TableCell>{payment.notes || 'N/A'}</TableCell>
+            <TableCell className="text-right">
+              <div className="flex justify-end gap-2">
+                <Link href={`/payments/${payment.id}/edit`}>
+                  <Button variant="outline" size="sm" className="h-8 w-8 p-0">
+                    <Edit className="h-4 w-4" />
+                  </Button>
+                </Link>
+                <DeletePaymentButton paymentId={payment.id} paymentNumber={payment.paymentNumber} />
+              </div>
+            </TableCell>
           </TableRow>
         ))}
       </TableBody>
