@@ -51,22 +51,24 @@ model Product {
 // --- Invoice Model ---
 // Represents a single invoice for a customer.
 model Invoice {
-  id            String        @id @default(cuid())
-  invoiceNumber String        @unique @default(cuid()) // A human-readable invoice number
-  customerId    String
-  customer      Customer      @relation(fields: [customerId], references: [id])
-  invoiceDate   DateTime      @default(now())
-  totalAmount   Float
-  paidAmount    Float         @default(0.0) // Tracks how much has been paid for this specific invoice
-  status        InvoiceStatus @default(PENDING)
-  notes         String?
-  items         InvoiceItem[]
+  id                 String          @id @default(cuid())
+  invoiceNumber      String          @unique @default(cuid()) // A human-readable invoice number
+  customerId         String
+  customer           Customer        @relation(fields: [customerId], references: [id])
+  invoiceDate        DateTime        @default(now())
+  totalAmount        Float // This will be the subtotal before discount
+  discountAmount     Float           @default(0.0) // ⭐ New: Discount applied to the invoice
+  netAmount          Float           // ⭐ New: TotalAmount - DiscountAmount
+  paidAmount         Float           @default(0.0) // Tracks how much has been paid for this specific invoice
+  status             InvoiceStatus   @default(PENDING)
+  notes              String?
+  items              InvoiceItem[]
 
   // UPDATED: Now links to the PaymentAllocation junction table
   paymentAllocations PaymentAllocation[]
 
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
 }
 
 // --- Invoice Item Model ---
@@ -88,7 +90,7 @@ model InvoiceItem {
 // Represents a payment received from a customer.
 model Payment {
   id              String  @id @default(cuid())
-  paymentNumber   String  @unique @default(cuid())
+  paymentNumber   String  @unique 
   customerId      String
   customer        Customer @relation(fields: [customerId], references: [id])
   amount          Float                         // Total amount of this payment

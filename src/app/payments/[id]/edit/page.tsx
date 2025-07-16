@@ -1,8 +1,14 @@
 // src/app/payments/[id]/edit/page.tsx
 import { Suspense } from 'react';
+import { Payment, Customer, Invoice, PaymentAllocation as PrismaPaymentAllocation } from '@prisma/client';
 import prisma from '@/lib/prisma';
 import { EditPaymentForm } from './_components/edit-payment-form';
-import { FullPayment, AllocatedInvoiceDisplay } from '@/types'; // Import the new types
+
+// Define a more comprehensive type for the payment data we'll fetch
+interface FullPayment extends Payment {
+  customer: Customer;
+  paymentAllocations: (PrismaPaymentAllocation & { invoice: Invoice })[];
+}
 
 interface EditPaymentPageProps {
   params: {
@@ -21,7 +27,7 @@ async function getPayment(id: string): Promise<FullPayment | null> {
         },
       },
     },
-  }) as FullPayment | null; // Cast to our custom FullPayment type
+  });
 }
 
 export default async function EditPaymentPage({ params }: EditPaymentPageProps) {
@@ -37,9 +43,9 @@ export default async function EditPaymentPage({ params }: EditPaymentPageProps) 
   }
 
   // Transform allocations to simply pass their data for display
-  const initialAllocations: AllocatedInvoiceDisplay[] = payment.paymentAllocations.map(alloc => ({
+  const initialAllocations = payment.paymentAllocations.map(alloc => ({
     invoiceId: alloc.invoiceId,
-    invoiceNumber: alloc.invoice.invoiceNumber,
+    invoiceNumber: alloc.invoice.invoiceNumber, // Pass invoice number for display
     allocatedAmount: alloc.allocatedAmount,
     invoiceTotal: alloc.invoice.totalAmount,
     invoicePaidAmount: alloc.invoice.paidAmount,

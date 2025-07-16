@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { Customer, Payment as PrismaPayment } from '@prisma/client'; // Removed Invoice and PaymentMethod
+import { Customer } from '@prisma/client';
 import { Combobox } from '@/components/ui/combobox';
 import { Card, CardContent } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
@@ -19,11 +19,10 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { FullPayment, AllocatedInvoiceDisplay } from '@/types'; // Import the new types
+import { FullPayment, AllocatedInvoiceDisplay } from '@/types';
 
-// Props now use FullPayment and AllocatedInvoiceDisplay
 interface EditPaymentFormProps {
-  payment: FullPayment; // Use FullPayment type here
+  payment: FullPayment;
   initialAllocations: AllocatedInvoiceDisplay[];
 }
 
@@ -32,7 +31,7 @@ export function EditPaymentForm({ payment, initialAllocations }: EditPaymentForm
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
-  const [paymentNumber, setPaymentNumber] = useState<string>(payment.paymentNumber);
+  const [paymentNumber, setPaymentNumber] = useState<string>(payment.paymentNumber); // ⭐ This will now correctly be 'PAYX'
   const [paymentDate, setPaymentDate] = useState<string>(new Date(payment.paymentDate).toISOString().split('T')[0]);
   const [amount, setAmount] = useState<number>(payment.amount);
   const [notes, setNotes] = useState(payment.notes || '');
@@ -56,6 +55,7 @@ export function EditPaymentForm({ payment, initialAllocations }: EditPaymentForm
     };
     fetchData();
   }, [payment.customerId]);
+
 
   const handleSavePayment = async () => {
     if (!selectedCustomer) {
@@ -104,9 +104,9 @@ export function EditPaymentForm({ payment, initialAllocations }: EditPaymentForm
                 <Label htmlFor="paymentNumber">Payment Number</Label>
                 <Input
                   id="paymentNumber"
-                  value={paymentNumber}
+                  value={paymentNumber} // ⭐ Displays the actual PAYX number
                   className="w-[180px]"
-                  disabled
+                  disabled // ⭐ Keep disabled as it's not editable
                 />
               </div>
             </div>
@@ -169,7 +169,7 @@ export function EditPaymentForm({ payment, initialAllocations }: EditPaymentForm
               />
             </div>
             <div className="space-y-2">
-              {/* This column is now empty if paymentMethod removed, can collapse or use for notes */}
+              {/* This column is intentionally empty if no other elements are needed here */}
             </div>
             <div className="space-y-2 md:col-span-2">
               <Label htmlFor="notes">Notes</Label>
