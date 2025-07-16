@@ -1,15 +1,8 @@
 // src/app/invoices/[id]/edit/page.tsx
 import { Suspense } from 'react';
-import { Invoice, Customer, Product, InvoiceItem as PrismaInvoiceItem } from '@prisma/client';
 import prisma from '@/lib/prisma';
-import { EditInvoiceForm } from './_components/edit-invoice-form'; // New client component
-import { InvoiceItem } from '@/store/invoice-store'; // Import the Zustand store's InvoiceItem type
-
-// Define a more comprehensive type for the invoice data we'll fetch
-interface FullInvoice extends Invoice {
-  customer: Customer;
-  items: (PrismaInvoiceItem & { product: Product })[];
-}
+import { EditInvoiceForm } from './_components/edit-invoice-form';
+import { FullInvoice } from '@/types'; // Import FullInvoice
 
 interface EditInvoicePageProps {
   params: {
@@ -28,7 +21,7 @@ async function getInvoice(id: string): Promise<FullInvoice | null> {
         },
       },
     },
-  });
+  }) as FullInvoice | null; // Cast to FullInvoice type
 }
 
 export default async function EditInvoicePage({ params }: EditInvoicePageProps) {
@@ -43,25 +36,12 @@ export default async function EditInvoicePage({ params }: EditInvoicePageProps) 
     );
   }
 
-  // Transform Prisma InvoiceItems into Zustand InvoiceItem format
-  const initialInvoiceItems: InvoiceItem[] = invoice.items.map(item => ({
-    id: item.id, // Keep the ID for updates
-    productId: item.productId,
-    productName: item.product.name,
-    productCode: item.product.code,
-    unitPrice: item.unitPrice,
-    quantity: item.quantity,
-    total: item.total,
-  }));
-
+  // Pass the invoice data, which now includes discountAmount and netAmount
   return (
-    <div className="container mx-auto py-10 max-w-4xl">
+    <div className="container mx-auto py-10 max-w-6xl">
       <h1 className="text-3xl font-bold mb-6">Edit Invoice: {invoice.invoiceNumber}</h1>
       <Suspense fallback={<div>Loading form...</div>}>
-        <EditInvoiceForm
-          invoice={invoice}
-          initialItems={initialInvoiceItems}
-        />
+        <EditInvoiceForm initialInvoice={invoice} />
       </Suspense>
     </div>
   );

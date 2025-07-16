@@ -19,7 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 
 interface ProductWithId extends Product {
@@ -27,6 +27,7 @@ interface ProductWithId extends Product {
 }
 
 // Helper function to generate next invoice number (e.g., INV1, INV2)
+// This remains local to the component for display purposes as per your provided code.
 const generateNextInvoiceNumber = (lastInvoiceNumber: string | null): string => {
   if (!lastInvoiceNumber) {
     return 'INV1';
@@ -44,7 +45,7 @@ export default function CreateInvoicePage() {
   const {
     selectedCustomer,
     invoiceItems,
-    totalAmount,
+    totalAmount, // This will now effectively be the 'subtotal'
     setCustomer,
     addItem,
     updateItemDetails,
@@ -56,6 +57,7 @@ export default function CreateInvoicePage() {
   const [products, setProducts] = useState<ProductWithId[]>([]);
   const [notes, setNotes] = useState('');
   const [invoiceNumber, setInvoiceNumber] = useState<string>(''); // State for invoice number
+  const [discountAmount, setDiscountAmount] = useState<number>(0); // ⭐ New state for discount amount
 
   const [selectedProductToAdd, setSelectedProductToAdd] = useState<string | null>(null);
   const [quantityToAdd, setQuantityToAdd] = useState<number>(1);
@@ -80,7 +82,7 @@ export default function CreateInvoicePage() {
         setCustomers(customersData);
         setProducts(productsData);
 
-        // Fetch last invoice number for auto-generation
+        // Fetch last invoice number for auto-generation (for display only)
         const lastInvoiceRes = await fetch(
           '/api/invoices?orderBy=createdAt&direction=desc&limit=1'
         );
@@ -112,6 +114,12 @@ export default function CreateInvoicePage() {
       setUnitPriceToAdd(0);
     }
   }, [selectedProductToAdd, products]);
+
+  // ⭐ Calculate Net Amount based on totalAmount (subtotal) and discountAmount
+  const netAmount = useMemo(() => {
+    // Ensure net amount doesn't go below zero
+    return Math.max(0, totalAmount - discountAmount);
+  }, [totalAmount, discountAmount]);
 
   const handleAddProduct = () => {
     if (!selectedProductToAdd || quantityToAdd <= 0 || unitPriceToAdd <= 0) {
@@ -150,15 +158,30 @@ export default function CreateInvoicePage() {
       return;
     }
 
+    // ⭐ Validation for discount
+    if (discountAmount > totalAmount) {
+      toast.error('Discount amount cannot exceed the subtotal.');
+      return;
+    }
+
     try {
       const response = await fetch('/api/invoices', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          invoiceNumber, // Include invoice number
+          // ⭐ IMPORTANT: We will let the backend generate the invoiceNumber for consistency.
+          // The frontend's `invoiceNumber` is for display only.
           customerId: selectedCustomer.id,
-          items: invoiceItems,
-          totalAmount,
+          invoiceDate: new Date().toISOString(), // Use current date, or add date picker if needed
+          items: invoiceItems.map(item => ({
+            productId: item.productId,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            total: item.total // This total will be recalculated on backend, but good for reference
+          })),
+          totalAmount: totalAmount, // This is the subtotal
+          discountAmount: discountAmount, // ⭐ Send discount amount
+          netAmount: netAmount, // ⭐ Send net amount
           notes,
         }),
       });
@@ -170,7 +193,11 @@ export default function CreateInvoicePage() {
 
       toast.success('Invoice created successfully!');
       resetForm();
-      setInvoiceNumber(generateNextInvoiceNumber(invoiceNumber)); // Generate next number for new form
+      // After saving, re-fetch the *next* invoice number for the form
+      const lastInvoiceRes = await fetch('/api/invoices?orderBy=createdAt&direction=desc&limit=1');
+      const lastInvoices = await lastInvoiceRes.json();
+      const lastInvNumber = lastInvoices.length > 0 ? lastInvoices[0].invoiceNumber : null;
+      setInvoiceNumber(generateNextInvoiceNumber(lastInvNumber));
       router.push('/invoices');
       router.refresh(); // Revalidate data on invoice list page
     } catch (error: any) {
@@ -195,7 +222,7 @@ export default function CreateInvoicePage() {
                   onChange={(e) => setInvoiceNumber(e.target.value)}
                   placeholder="INV-XXX"
                   className="w-[120px]" // Reduced width
-                  disabled // Make it disabled
+                  disabled // Make it disabled as it's auto-generated
                 />
               </div>
             </div>
@@ -374,7 +401,7 @@ export default function CreateInvoicePage() {
 
           <Separator />
 
-          {/* --- Totals and Notes --- */}
+          {/* --- Totals, Discount & Notes --- */}
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="notes">Notes</Label>
@@ -386,10 +413,32 @@ export default function CreateInvoicePage() {
               />
             </div>
             <div className="flex flex-col items-end gap-2 text-right">
+              {/* Subtotal from store's totalAmount */}
               <div className="flex justify-between items-center w-full max-w-xs">
-                <span className="text-xl font-bold">Grand Total:</span>
-                <span className="text-3xl font-extrabold text-primary">
+                <span className="text-lg font-semibold">Subtotal:</span>
+                <span className="text-lg font-semibold">
                   ₹{totalAmount.toFixed(2)}
+                </span>
+              </div>
+              {/* ⭐ Discount Input Field */}
+              <div className="flex justify-between items-center w-full max-w-xs">
+                <Label htmlFor="discountAmount" className="text-lg font-semibold">Discount (₹):</Label>
+                <Input
+                  id="discountAmount"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={discountAmount === 0 ? '' : discountAmount}
+                  onChange={(e) => setDiscountAmount(parseFloat(e.target.value) || 0)}
+                  placeholder="0.00"
+                  className="w-[120px] text-right"
+                />
+              </div>
+              {/* ⭐ Net Amount Display */}
+              <div className="flex justify-between items-center w-full max-w-xs">
+                <span className="text-xl font-bold">Net Amount:</span>
+                <span className="text-3xl font-extrabold text-primary">
+                  ₹{netAmount.toFixed(2)}
                 </span>
               </div>
               <div className="flex gap-2 mt-4">
