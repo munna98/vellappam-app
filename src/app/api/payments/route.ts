@@ -2,158 +2,209 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { InvoiceStatus } from '@prisma/client';
-import { generateNextPaymentNumber } from '@/lib/payment-utils'; // Import the utility
 
-// GET /api/payments (No changes needed here for payment number generation)
+// Helper function to generate the next payment number
+async function generateNextPaymentNumber() {
+  const lastPayment = await prisma.payment.findFirst({
+    orderBy: { createdAt: 'desc' },
+    select: { paymentNumber: true },
+  });
+
+  if (!lastPayment || !lastPayment.paymentNumber) {
+    return 'PAY1';
+  }
+
+  const match = lastPayment.paymentNumber.match(/^PAY(\d+)$/);
+  if (match) {
+    const lastNumber = parseInt(match[1], 10);
+    return `PAY${lastNumber + 1}`;
+  }
+  return 'PAY1'; // Fallback
+}
+
 export async function GET(request: Request) {
-  try {
-    const { searchParams } = new URL(request.url);
-    const orderBy = searchParams.get('orderBy') || 'paymentDate';
-    const direction = searchParams.get('direction') || 'desc';
-    const limit = searchParams.get('limit');
+  const { searchParams } = new URL(request.url);
+  const customerId = searchParams.get('customerId');
+  const query = searchParams.get('query'); // For general search
+  const orderBy = searchParams.get('orderBy') || 'createdAt';
+  const direction = searchParams.get('direction') === 'asc' ? 'asc' : 'desc';
+  const limit = parseInt(searchParams.get('limit') || '10', 10);
+  const page = parseInt(searchParams.get('page') || '1', 10);
+  const skip = (page - 1) * limit;
 
-    const findManyArgs: any = {
-      include: {
-        customer: {
-          select: { name: true, phone: true },
-        },
-        paymentAllocations: {
-          include: {
-            invoice: {
-              select: { invoiceNumber: true, id: true, totalAmount: true, paidAmount: true },
+  try {
+    const whereClause: any = {};
+    if (customerId) {
+      whereClause.customerId = customerId;
+    }
+    if (query) {
+      whereClause.OR = [
+        { paymentNumber: { contains: query, mode: 'insensitive' } },
+        { customer: { name: { contains: query, mode: 'insensitive' } } },
+        { notes: { contains: query, mode: 'insensitive' } },
+      ];
+    }
+
+    const [payments, totalCount] = await prisma.$transaction([
+      prisma.payment.findMany({
+        where: whereClause,
+        include: {
+          customer: true,
+          paymentAllocations: {
+            include: {
+              invoice: {
+                select: {
+                  id: true,
+                  invoiceNumber: true,
+                  balanceDue: true,
+                  status: true,
+                },
+              },
             },
           },
         },
-      },
-      orderBy: {
-        [orderBy]: direction,
-      },
-    };
+        orderBy: {
+          [orderBy]: direction,
+        },
+        skip: skip,
+        take: limit,
+      }),
+      prisma.payment.count({ where: whereClause }),
+    ]);
 
-    if (limit) {
-      findManyArgs.take = parseInt(limit, 10);
-    }
-
-    const payments = await prisma.payment.findMany(findManyArgs);
-
-    const formattedPayments = payments.map(p => ({
-      ...p,
-      allocatedTo: p.paymentAllocations.map(pa => ({
-        invoiceId: pa.invoice.id,
-        invoiceNumber: pa.invoice.invoiceNumber,
-        allocatedAmount: pa.allocatedAmount,
-        invoiceTotal: pa.invoice.totalAmount,
-        invoicePaidAmount: pa.invoice.paidAmount,
-      }))
-    }));
-
-    return NextResponse.json(formattedPayments);
+    return NextResponse.json({ payments, totalCount });
   } catch (error) {
     console.error('Error fetching payments:', error);
-    return NextResponse.json({ error: 'Failed to fetch payments' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to fetch payments', details: (error as Error).message }, { status: 500 });
   }
 }
 
-// POST /api/payments
 export async function POST(request: Request) {
   try {
-    const { customerId, amount, paymentDate, notes } = await request.json();
+    const { customerId, amount, paymentDate, notes } = await request.json(); // 'allocations' removed from request body
 
-    if (!customerId || amount === undefined || amount <= 0) {
-      return NextResponse.json({ error: 'Customer and a positive amount are required' }, { status: 400 });
+    // 1. Basic validation
+    if (!customerId) {
+      return NextResponse.json({ error: 'Customer is required.' }, { status: 400 });
+    }
+    const parsedAmount = parseFloat(amount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      return NextResponse.json({ error: 'Payment amount must be a positive number.' }, { status: 400 });
     }
 
-    // ⭐ Generate the next sequential payment number here
+    // 2. Fetch all outstanding invoices for the customer, sorted by invoiceDate (FIFO)
+    const outstandingInvoices = await prisma.invoice.findMany({
+      where: {
+        customerId: customerId,
+        status: InvoiceStatus.PENDING, // Only consider pending invoices
+        balanceDue: { gt: 0 }, // Only invoices with outstanding balance
+      },
+      orderBy: {
+        invoiceDate: 'asc', // FIFO: oldest invoices first
+      },
+      select: {
+        id: true,
+        invoiceNumber: true,
+        balanceDue: true,
+        paidAmount: true,
+        netAmount: true,
+      },
+    });
+
+    let remainingPaymentAmount = parsedAmount;
+    const allocationsToCreate: { invoiceId: string; allocatedAmount: number }[] = [];
+    const invoicesToUpdate: { id: string; paidAmount: number; balanceDue: number; status: InvoiceStatus }[] = [];
+
+    // 3. Allocate payment to invoices in FIFO order
+    for (const invoice of outstandingInvoices) {
+      if (remainingPaymentAmount <= 0) break; // No more payment left
+
+      const amountToAllocate = Math.min(remainingPaymentAmount, invoice.balanceDue);
+
+      if (amountToAllocate > 0) {
+        allocationsToCreate.push({
+          invoiceId: invoice.id,
+          allocatedAmount: amountToAllocate,
+        });
+
+        const newPaidAmount = invoice.paidAmount + amountToAllocate;
+        const newBalanceDue = invoice.balanceDue - amountToAllocate;
+        let newStatus: InvoiceStatus = InvoiceStatus.PENDING;
+        if (newBalanceDue <= 0) {
+          newStatus = InvoiceStatus.PAID;
+        }
+
+        invoicesToUpdate.push({
+          id: invoice.id,
+          paidAmount: newPaidAmount,
+          balanceDue: newBalanceDue,
+          status: newStatus,
+        });
+
+        remainingPaymentAmount -= amountToAllocate;
+      }
+    }
+
+    // If there's still remainingPaymentAmount, it means it's an overpayment or a pre-payment
+    // In a real system, you might handle this as customer credit or require it to be fully allocated.
+    // For now, any unallocated amount will just reduce the customer's overall balance.
+
+    // 4. Generate unique payment number
     const nextPaymentNumber = await generateNextPaymentNumber();
 
-    // Use a Prisma transaction for atomicity
+    // 5. Perform transactions to create payment, allocations, and update invoices/customer
     const result = await prisma.$transaction(async (prisma) => {
-      // 1. Create the new Payment record
+      // 5.1. Create the Payment record
       const payment = await prisma.payment.create({
         data: {
-          paymentNumber: nextPaymentNumber, // ⭐ Assign the generated number
+          paymentNumber: nextPaymentNumber,
           customerId,
-          amount,
+          amount: parsedAmount, // Total payment amount received
           paymentDate: paymentDate ? new Date(paymentDate) : new Date(),
           notes,
         },
       });
 
-      let remainingPaymentAmount = amount;
-      const allocationsToCreate = [];
-
-      // 2. Fetch all PENDING or PARTIAL invoices for the customer, ordered by oldest first
-      const outstandingInvoices = await prisma.invoice.findMany({
-        where: {
-          customerId,
-          status: {
-            in: [InvoiceStatus.PENDING, InvoiceStatus.PARTIAL],
-          },
-        },
-        orderBy: {
-          invoiceDate: 'asc', // FIFO: Oldest invoices first
-        },
-      });
-
-      // 3. Allocate payment to invoices (FIFO)
-      for (const invoice of outstandingInvoices) {
-        if (remainingPaymentAmount <= 0) break;
-
-        const amountDueOnInvoice = invoice.totalAmount - invoice.paidAmount;
-
-        if (amountDueOnInvoice <= 0) continue;
-
-        const amountToApplyToThisInvoice = Math.min(remainingPaymentAmount, amountDueOnInvoice);
-
-        allocationsToCreate.push({
-          paymentId: payment.id,
-          invoiceId: invoice.id,
-          allocatedAmount: amountToApplyToThisInvoice,
-        });
-
-        const newPaidAmountForInvoice = invoice.paidAmount + amountToApplyToThisInvoice;
-        let newStatus: InvoiceStatus;
-
-        if (newPaidAmountForInvoice >= invoice.totalAmount) {
-          newStatus = InvoiceStatus.PAID;
-        } else {
-          newStatus = InvoiceStatus.PARTIAL;
-        }
-
-        await prisma.invoice.update({
-          where: { id: invoice.id },
+      // 5.2. Create PaymentAllocation records and update Invoices
+      for (const alloc of allocationsToCreate) {
+        await prisma.paymentAllocation.create({
           data: {
-            paidAmount: newPaidAmountForInvoice,
-            status: newStatus,
+            paymentId: payment.id,
+            invoiceId: alloc.invoiceId,
+            allocatedAmount: alloc.allocatedAmount,
           },
         });
-
-        remainingPaymentAmount -= amountToApplyToThisInvoice;
       }
 
-      // 4. Create all payment allocations in a batch
-      if (allocationsToCreate.length > 0) {
-        await prisma.paymentAllocation.createMany({
-          data: allocationsToCreate,
+      for (const invoiceUpdate of invoicesToUpdate) {
+        await prisma.invoice.update({
+          where: { id: invoiceUpdate.id },
+          data: {
+            paidAmount: invoiceUpdate.paidAmount,
+            balanceDue: invoiceUpdate.balanceDue,
+            status: invoiceUpdate.status,
+          },
         });
       }
 
-      // 5. Update the customer's overall balance
+      // 5.3. Update the customer's overall balance
+      // Decrement customer balance by the total amount of this payment
+      // This correctly reflects the customer owing less, even if partially unallocated
       await prisma.customer.update({
         where: { id: customerId },
         data: {
           balance: {
-            decrement: amount,
+            decrement: parsedAmount,
           },
         },
       });
 
-      return payment;
+      return payment; // Return the created payment object
     });
 
     return NextResponse.json(result, { status: 201 });
-  } catch (error) {
-    console.error('Error creating payment or allocating:', error);
-    return NextResponse.json({ error: 'Failed to process payment', details: (error as Error).message }, { status: 500 });
+  } catch (error: any) {
+    console.error('Error creating payment:', error);
+    return NextResponse.json({ error: 'Failed to create payment', details: error.message || 'Unknown error' }, { status: 500 });
   }
 }

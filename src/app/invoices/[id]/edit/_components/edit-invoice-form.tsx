@@ -7,21 +7,46 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { Customer, Product } from '@prisma/client';
+import { Plus, X } from 'lucide-react';
+import { Customer, Product, Invoice } from '@prisma/client';
 import { Combobox } from '@/components/ui/combobox';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { Card, CardContent } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
-import { MinusCircle } from 'lucide-react';
-import { FullInvoice, FullInvoiceItem } from '@/types'; // Assuming FullInvoice has discountAmount, netAmount
 
-interface InvoiceItemForm {
-  id: string; // Unique ID for React list key (important for existing items too)
+// --- Type Definitions (can be in a shared types file) ---
+export type FullInvoiceItem = {
+  id: string; // The InvoiceItem's ID
+  productId: string;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+  product: Product; // Prisma relation included
+};
+
+export type FullInvoice = Invoice & {
+  customer: Customer;
+  items: FullInvoiceItem[];
+};
+
+// Represents an item in the form's state
+interface FormInvoiceItem {
+  id: string; // Unique ID for React list key (can be existing item's ID or a new UUID for new items)
   productId: string;
   productName: string;
+  productCode: string;
   quantity: number;
   unitPrice: number;
   total: number;
 }
+// --- End Type Definitions ---
 
 interface EditInvoiceFormProps {
   initialInvoice: FullInvoice;
@@ -35,18 +60,28 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [invoiceDate, setInvoiceDate] = useState<string>(new Date(initialInvoice.invoiceDate).toISOString().split('T')[0]);
   const [notes, setNotes] = useState(initialInvoice.notes || '');
-  const [items, setItems] = useState<InvoiceItemForm[]>(
-    initialInvoice.items.map((item: FullInvoiceItem) => ({
+
+  // Items state initialized from initialInvoice, ready for editing or adding new
+  const [items, setItems] = useState<FormInvoiceItem[]>(
+    initialInvoice.items.map((item) => ({
       id: item.id, // Use existing item ID
       productId: item.productId,
       productName: item.product.name,
+      productCode: item.product.code,
       quantity: item.quantity,
       unitPrice: item.unitPrice,
       total: item.total,
     }))
   );
-  const [discountAmount, setDiscountAmount] = useState<number>(initialInvoice.discountAmount); // ⭐ Initialize with existing discount
-  const [paidAmount, setPaidAmount] = useState<number>(initialInvoice.paidAmount); // Keep track of paid amount if editable
+
+  const [discountAmount, setDiscountAmount] = useState<number>(initialInvoice.discountAmount);
+  const [paidAmount, setPaidAmount] = useState<number>(initialInvoice.paidAmount);
+
+  // States for adding a new product line (matching new invoice form)
+  const [selectedProductToAdd, setSelectedProductToAdd] = useState<string | null>(null);
+  const [quantityToAdd, setQuantityToAdd] = useState<number>(1);
+  const [unitPriceToAdd, setUnitPriceToAdd] = useState<number>(0);
+
 
   useEffect(() => {
     const fetchData = async () => {
@@ -74,57 +109,95 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
     fetchData();
   }, [initialInvoice.customerId]);
 
-  const handleAddItem = () => {
-    setItems((prevItems) => [
-      ...prevItems,
-      {
-        id: crypto.randomUUID(), // New unique ID for new items
-        productId: '',
-        productName: '',
-        quantity: 1,
-        unitPrice: 0,
-        total: 0,
-      },
-    ]);
-  };
+  // Update unitPriceToAdd when a product is selected in the "add new product" row
+  useEffect(() => {
+    if (selectedProductToAdd) {
+      const product = products.find((p) => p.id === selectedProductToAdd);
+      if (product) {
+        setUnitPriceToAdd(product.price);
+      }
+    } else {
+      setUnitPriceToAdd(0);
+    }
+  }, [selectedProductToAdd, products]);
 
-  const handleItemChange = (
-    index: number,
-    field: keyof InvoiceItemForm,
+  // --- Handlers for existing invoice items (in the table) ---
+  const handleItemUpdate = (
+    itemId: string, // This is the unique 'id' used as key for FormInvoiceItem
+    field: keyof FormInvoiceItem,
     value: any
   ) => {
-    const updatedItems = [...items];
-    const currentItem = updatedItems[index];
+    setItems((prevItems) =>
+      prevItems.map((item) => {
+        if (item.id === itemId) {
+          const updatedItem = { ...item, [field]: value };
+          // Recalculate total if quantity or unitPrice changes
+          if (field === 'quantity' || field === 'unitPrice') {
+            updatedItem.total = (updatedItem.quantity || 0) * (updatedItem.unitPrice || 0);
+          }
+          return updatedItem;
+        }
+        return item;
+      })
+    );
+  };
 
-    if (field === 'productId') {
-      const selectedProduct = products.find((p) => p.id === value);
-      if (selectedProduct) {
-        currentItem.productId = selectedProduct.id;
-        currentItem.productName = selectedProduct.name;
-        currentItem.unitPrice = selectedProduct.price;
-        currentItem.total = currentItem.quantity * selectedProduct.price;
-      }
-    } else if (field === 'quantity' || field === 'unitPrice') {
-      currentItem[field] = parseFloat(value) || 0;
-      currentItem.total = currentItem.quantity * currentItem.unitPrice;
-    } else {
-      currentItem[field] = value;
+  const handleRemoveItem = (itemId: string) => {
+    setItems((prevItems) => prevItems.filter((item) => item.id !== itemId));
+  };
+  // --- End Handlers for existing invoice items ---
+
+
+  // --- Handler for adding a NEW product line (below the table) ---
+  const handleAddProduct = () => {
+    if (!selectedProductToAdd || quantityToAdd <= 0 || unitPriceToAdd <= 0) {
+      toast.error('Please select a product, enter a valid quantity, and a valid unit price.');
+      return;
     }
-    setItems(updatedItems);
-  };
 
-  const handleRemoveItem = (id: string) => {
-    setItems((prevItems) => prevItems.filter((item) => item.id !== id));
-  };
+    const product = products.find((p) => p.id === selectedProductToAdd);
+    if (product) {
+      // Check if product already exists in current items
+      const existingItem = items.find(item => item.productId === product.id);
+      if (existingItem) {
+        toast.error('Product already added. Edit the existing item in the table.');
+        return;
+      }
 
+      setItems((prevItems) => [
+        ...prevItems,
+        {
+          id: crypto.randomUUID(), // Assign a new UUID for a newly added item
+          productId: product.id,
+          productName: product.name,
+          productCode: product.code,
+          quantity: quantityToAdd,
+          unitPrice: unitPriceToAdd,
+          total: quantityToAdd * unitPriceToAdd,
+        },
+      ]);
+      // Reset the "add product" inputs
+      setSelectedProductToAdd(null);
+      setQuantityToAdd(1);
+      setUnitPriceToAdd(0);
+    }
+  };
+  // --- End Handler for adding a NEW product line ---
+
+
+  // --- Calculations ---
   const subtotal = useMemo(() => {
     return items.reduce((sum, item) => sum + item.total, 0);
   }, [items]);
 
-  // ⭐ Calculate Net Amount
   const netAmount = useMemo(() => {
     return Math.max(0, subtotal - discountAmount);
   }, [subtotal, discountAmount]);
+
+  const currentBalanceDue = useMemo(() => {
+    return Math.max(0, netAmount - paidAmount);
+  }, [netAmount, paidAmount]);
+  // --- End Calculations ---
 
 
   const handleSaveInvoice = async () => {
@@ -146,10 +219,14 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
       return;
     }
 
-    // ⭐ Validation for discount
-    if (discountAmount > subtotal) {
-        toast.error('Discount amount cannot exceed the subtotal.');
+    if (discountAmount < 0 || discountAmount > subtotal) {
+        toast.error('Discount amount must be between 0 and the subtotal.');
         return;
+    }
+
+    if (paidAmount < 0 || paidAmount > netAmount) {
+      toast.error('Paid amount must be between 0 and the Net Amount.');
+      return;
     }
 
     try {
@@ -159,12 +236,13 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
         body: JSON.stringify({
           customerId: selectedCustomer.id,
           invoiceDate,
-          items: items.map(({ id, productName, ...rest }) => rest), // Remove client-only fields like 'id' and 'productName'
+          // Map `items` to the structure expected by the API: exclude 'id', 'productName', 'productCode'
+          // The backend expects productId, quantity, unitPrice, total
+          items: items.map(({ id, productName, productCode, ...rest }) => rest),
           notes,
-          totalAmount: subtotal, // This is the subtotal
-          discountAmount, // ⭐ Send discountAmount
-          netAmount, // ⭐ Send netAmount
-          paidAmount, // Include paidAmount for status calculation
+          totalAmount: subtotal,
+          discountAmount,
+          paidAmount,
         }),
       });
 
@@ -175,7 +253,7 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
 
       toast.success('Invoice updated successfully!');
       router.push('/invoices');
-      router.refresh();
+      router.refresh(); // Refresh data on the page
     } catch (error: any) {
       console.error(error);
       toast.error(error.message || 'Error updating invoice.');
@@ -184,9 +262,10 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
 
   return (
     <div className="container mx-auto py-10">
+      <h1 className="text-3xl font-bold mb-8">Edit Invoice</h1> {/* Title adjusted for edit */}
       <Card className="max-w-6xl mx-auto p-6 space-y-8">
         <CardContent className="p-0 space-y-6">
-          {/* Invoice Number and Date */}
+          {/* --- Invoice Number & Date & Customer Selection --- */}
           <div className="flex flex-col md:flex-row md:items-end gap-4">
             <div className="flex-1 w-full md:w-auto">
               <div className="space-y-2">
@@ -195,7 +274,7 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
                   id="invoiceNumber"
                   value={initialInvoice.invoiceNumber}
                   className="w-[180px]"
-                  disabled
+                  disabled // Disabled as it's an existing number
                 />
               </div>
             </div>
@@ -243,124 +322,179 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
 
           <Separator />
 
-          {/* Invoice Items */}
+          {/* --- Product Line Items Table and Add New Product Section --- */}
           <div className="space-y-4">
             <h3 className="text-lg font-semibold">Invoice Items</h3>
-            {items.map((item, index) => (
-              <Card key={item.id} className="p-4 relative">
-                <div className="grid md:grid-cols-4 gap-4 items-end">
-                  <div className="space-y-2 col-span-2">
-                    <Label htmlFor={`product-${item.id}`}>Product</Label>
-                    <Combobox
-                      id={`product-${item.id}`}
-                      items={products}
-                      value={item.productId}
-                      onSelect={(value) =>
-                        handleItemChange(index, 'productId', value)
-                      }
-                      placeholder="Select a product..."
-                      emptyMessage="No product found."
-                      searchPlaceholder="Search products..."
-                      displayKey="name"
-                      valueKey="id"
-                      formatItemLabel={(product: Product) =>
-                        `${product.name} (Code: ${product.code})`
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor={`quantity-${item.id}`}>Quantity</Label>
-                    <Input
-                      id={`quantity-${item.id}`}
-                      type="number"
-                      min="1"
-                      value={item.quantity}
-                      onChange={(e) =>
-                        handleItemChange(index, 'quantity', e.target.value)
-                      }
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor={`unitPrice-${item.id}`}>Unit Price (₹)</Label>
-                    <Input
-                      id={`unitPrice-${item.id}`}
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={item.unitPrice}
-                      onChange={(e) =>
-                        handleItemChange(index, 'unitPrice', e.target.value)
-                      }
-                    />
-                  </div>
-                </div>
-                <div className="flex justify-between items-center mt-3">
-                  <span className="text-md font-semibold">
-                    Total: ₹{item.total.toFixed(2)}
-                  </span>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => handleRemoveItem(item.id)}
-                    className="absolute top-2 right-2"
-                  >
-                    <MinusCircle className="h-5 w-5 text-destructive" />
-                  </Button>
-                </div>
-              </Card>
-            ))}
-            <Button variant="outline" onClick={handleAddItem}>
-              Add Item
-            </Button>
+            {items.length > 0 && (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Code</TableHead>
+                    <TableHead>Product</TableHead>
+                    <TableHead className="text-right">Unit Price (₹)</TableHead>
+                    <TableHead className="text-right">Qty</TableHead>
+                    <TableHead className="text-right">Total</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {items.map((item) => (
+                    <TableRow key={item.id}> {/* Use item.id as key */}
+                      <TableCell>{item.productCode}</TableCell>
+                      <TableCell className="font-medium">{item.productName}</TableCell>
+                      <TableCell className="w-[120px]">
+                        <Input
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          value={item.unitPrice === 0 ? '' : item.unitPrice}
+                          onChange={(e) =>
+                            handleItemUpdate(item.id, 'unitPrice', parseFloat(e.target.value) || 0)
+                          }
+                          className="text-right"
+                        />
+                      </TableCell>
+                      <TableCell className="w-[100px]">
+                        <Input
+                          type="number"
+                          min="1"
+                          value={item.quantity === 0 ? '' : item.quantity}
+                          onChange={(e) =>
+                            handleItemUpdate(item.id, 'quantity', parseInt(e.target.value) || 0)
+                          }
+                          className="text-right"
+                        />
+                      </TableCell>
+                      <TableCell className="text-right">
+                        ₹{item.total.toFixed(2)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleRemoveItem(item.id)}
+                        >
+                          <X className="h-4 w-4 text-red-500" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+
+            {/* --- Add New Product Section (below table) --- */}
+            <div className="flex flex-wrap items-end gap-4 mt-4">
+              <div className="flex-1 min-w-[200px] sm:min-w-[250px] md:min-w-[300px] space-y-2">
+                <Label htmlFor="productToAdd">Add New Product</Label>
+                <Combobox
+                  id="productToAdd"
+                  items={products}
+                  value={selectedProductToAdd}
+                  onSelect={setSelectedProductToAdd}
+                  placeholder="Select a product..."
+                  emptyMessage="No product found."
+                  searchPlaceholder="Search products..."
+                  displayKey="name"
+                  valueKey="id"
+                  formatItemLabel={(product: Product) =>
+                    `${product.name} (₹${product.price.toFixed(2)} / ${product.unit})`
+                  }
+                />
+              </div>
+              <div className="w-full sm:w-[120px] space-y-2">
+                <Label htmlFor="unitPriceToAdd">Unit Price</Label>
+                <Input
+                  id="unitPriceToAdd"
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={unitPriceToAdd === 0 ? '' : unitPriceToAdd}
+                  onChange={(e) => setUnitPriceToAdd(parseFloat(e.target.value) || 0)}
+                  placeholder="Price"
+                  className="text-right"
+                />
+              </div>
+              <div className="w-full sm:w-[80px] space-y-2">
+                <Label htmlFor="quantityToAdd">Qty</Label>
+                <Input
+                  id="quantityToAdd"
+                  type="number"
+                  min="1"
+                  value={quantityToAdd === 0 ? '' : quantityToAdd}
+                  onChange={(e) => setQuantityToAdd(parseInt(e.target.value) || 1)}
+                  placeholder="Qty"
+                  className="text-right"
+                />
+              </div>
+              <Button
+                onClick={handleAddProduct}
+                className="w-full sm:w-auto h-10 flex-shrink-0"
+              >
+                <Plus className="h-4 w-4 mr-2" /> Add Item
+              </Button>
+            </div>
           </div>
 
           <Separator />
 
-          {/* ⭐ Discount and Totals directly below items */}
-          <div className="flex flex-col gap-2 max-w-sm ml-auto">
-            <div className="flex justify-between items-center text-lg font-semibold">
-              <span>Subtotal:</span>
-              <span>₹{subtotal.toFixed(2)}</span>
+          {/* --- Totals, Discount, Paid Amount, and Balance Due --- */}
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="notes">Notes</Label>
+              <Input
+                id="notes"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Any specific notes for this invoice..."
+              />
             </div>
-            {/* ⭐ Discount Input Field */}
-            <div className="flex justify-between items-center w-full">
+            <div className="flex flex-col items-end gap-2 text-right">
+              <div className="flex justify-between items-center w-full max-w-xs">
+                <span className="text-lg font-semibold">Subtotal:</span>
+                <span className="text-lg font-semibold">₹{subtotal.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between items-center w-full max-w-xs">
                 <Label htmlFor="discountAmount" className="text-lg font-semibold">Discount (₹):</Label>
                 <Input
-                    id="discountAmount"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={discountAmount === 0 ? '' : discountAmount}
-                    onChange={(e) => setDiscountAmount(parseFloat(e.target.value) || 0)}
-                    placeholder="0.00"
-                    className="w-[120px] text-right"
+                  id="discountAmount"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={discountAmount === 0 ? '' : discountAmount}
+                  onChange={(e) => setDiscountAmount(parseFloat(e.target.value) || 0)}
+                  placeholder="0.00"
+                  className="w-[120px] text-right"
                 />
+              </div>
+              <div className="flex justify-between items-center w-full max-w-xs">
+                <span className="text-xl font-bold">Net Amount:</span>
+                <span className="text-3xl font-extrabold text-primary">₹{netAmount.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between items-center w-full max-w-xs">
+                <Label htmlFor="paidAmount" className="text-lg font-semibold">Paid Amount (₹):</Label>
+                <Input
+                  id="paidAmount"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={paidAmount === 0 ? '' : paidAmount}
+                  onChange={(e) => setPaidAmount(parseFloat(e.target.value) || 0)}
+                  placeholder="0.00"
+                  className="w-[120px] text-right"
+                />
+              </div>
+              <div className="flex justify-between items-center w-full max-w-xs text-primary">
+                <span className="text-xl font-bold">Balance Due:</span>
+                <span className="text-2xl font-extrabold">₹{currentBalanceDue.toFixed(2)}</span>
+              </div>
+              <div className="flex gap-2 mt-4">
+                <Button variant="outline" onClick={() => router.push('/invoices')}>
+                  Cancel
+                </Button>
+                <Button onClick={handleSaveInvoice}>Save Changes</Button>
+              </div>
             </div>
-            {/* ⭐ Net Amount Display */}
-            <div className="flex justify-between items-center text-xl font-bold text-primary">
-              <span>Net Amount:</span>
-              <span>₹{netAmount.toFixed(2)}</span>
-            </div>
-          </div>
-
-          <Separator />
-
-          {/* Notes */}
-          <div className="space-y-2">
-            <Label htmlFor="notes">Notes</Label>
-            <Input
-              id="notes"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Any specific notes for this invoice..."
-            />
-          </div>
-
-          <div className="flex justify-end gap-2 mt-6">
-            <Button variant="outline" onClick={() => router.push('/invoices')}>
-              Cancel
-            </Button>
-            <Button onClick={handleSaveInvoice}>Save Changes</Button>
           </div>
         </CardContent>
       </Card>

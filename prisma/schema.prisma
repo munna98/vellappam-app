@@ -51,26 +51,24 @@ model Product {
 // --- Invoice Model ---
 // Represents a single invoice for a customer.
 model Invoice {
-  id                 String          @id @default(cuid())
-  invoiceNumber      String          @unique @default(cuid()) // A human-readable invoice number
-  customerId         String
-  customer           Customer        @relation(fields: [customerId], references: [id])
-  invoiceDate        DateTime        @default(now())
-  totalAmount        Float // This will be the subtotal before discount
-  discountAmount     Float           @default(0.0) // ⭐ New: Discount applied to the invoice
-  netAmount          Float           // ⭐ New: TotalAmount - DiscountAmount
-  paidAmount         Float           @default(0.0) // Tracks how much has been paid for this specific invoice
-  status             InvoiceStatus   @default(PENDING)
-  notes              String?
-  items              InvoiceItem[]
+  id            String        @id @default(uuid())
+  invoiceNumber String        @unique // e.g., INV-2023-001
+  customerId    String
+  invoiceDate   DateTime      @default(now())
+  totalAmount   Float         // Subtotal of all items (before discount)
+  discountAmount Float        @default(0.0) // Discount applied to the invoice
+  netAmount     Float         // totalAmount - discountAmount
+  paidAmount    Float         @default(0.0) // Amount actually paid for this specific invoice
+  balanceDue    Float         // netAmount - paidAmount (outstanding for THIS invoice)
+  status        InvoiceStatus @default(PENDING) // Status of the invoice
+  notes         String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 
-  // UPDATED: Now links to the PaymentAllocation junction table
+  customer Customer    @relation(fields: [customerId], references: [id])
+  items    InvoiceItem[]
   paymentAllocations PaymentAllocation[]
-
-  createdAt          DateTime        @default(now())
-  updatedAt          DateTime        @updatedAt
 }
-
 // --- Invoice Item Model ---
 // Represents a line item on an invoice.
 model InvoiceItem {
@@ -123,7 +121,8 @@ model PaymentAllocation {
 // --- Invoice Status Enum ---
 // Defines the possible statuses for an invoice.
 enum InvoiceStatus {
-  PENDING
-  PAID
-  PARTIAL
+  PENDING   // Some amount is still due
+  PAID      // Fully paid
+  OVERDUE   // Past due date (requires separate scheduled task/logic)
+  CANCELLED // Manually cancelled (requires separate action)
 }

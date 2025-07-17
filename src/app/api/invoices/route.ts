@@ -1,52 +1,151 @@
 // src/app/api/invoices/route.ts
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-import { generateNextInvoiceNumber } from '@/lib/invoice-utils'; // Ensure this utility exists and is imported
+import { InvoiceStatus } from '@prisma/client';
 
-// ... (GET method remains the same)
+// Helper function to generate the next invoice number
+// This should be robust in a real application, potentially with locking
+async function generateNextInvoiceNumber() {
+  const lastInvoice = await prisma.invoice.findFirst({
+    orderBy: { createdAt: 'desc' },
+    select: { invoiceNumber: true },
+  });
 
-// POST a new invoice
+  if (!lastInvoice || !lastInvoice.invoiceNumber) {
+    return 'INV1';
+  }
+
+  const match = lastInvoice.invoiceNumber.match(/^INV(\d+)$/);
+  if (match) {
+    const lastNumber = parseInt(match[1], 10);
+    return `INV${lastNumber + 1}`;
+  }
+  return 'INV1'; // Fallback if format is unexpected
+}
+
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const customerId = searchParams.get('customerId');
+  const query = searchParams.get('query'); // For general search
+  const orderBy = searchParams.get('orderBy') || 'createdAt';
+  const direction = searchParams.get('direction') === 'asc' ? 'asc' : 'desc';
+  const limit = parseInt(searchParams.get('limit') || '10', 10);
+  const page = parseInt(searchParams.get('page') || '1', 10);
+  const skip = (page - 1) * limit;
+
+  try {
+    const whereClause: any = {};
+    if (customerId) {
+      whereClause.customerId = customerId;
+    }
+    if (query) {
+      // Basic search on invoiceNumber or customer name
+      whereClause.OR = [
+        { invoiceNumber: { contains: query, mode: 'insensitive' } },
+        { customer: { name: { contains: query, mode: 'insensitive' } } },
+      ];
+    }
+
+    const [invoices, totalCount] = await prisma.$transaction([
+      prisma.invoice.findMany({
+        where: whereClause,
+        include: {
+          customer: true,
+          items: {
+            include: {
+              product: true,
+            },
+          },
+        },
+        orderBy: {
+          [orderBy]: direction,
+        },
+        skip: skip,
+        take: limit,
+      }),
+      prisma.invoice.count({ where: whereClause }),
+    ]);
+
+    return NextResponse.json({ invoices, totalCount });
+  } catch (error) {
+    console.error('Error fetching invoices:', error);
+    return NextResponse.json({ error: 'Failed to fetch invoices', details: (error as Error).message }, { status: 500 });
+  }
+}
+
 export async function POST(request: Request) {
   try {
-    // ⭐ Destructure new fields: discountAmount and netAmount
-    const { customerId, invoiceDate, items, notes, totalAmount: subtotalAmount, discountAmount, netAmount } = await request.json();
+    const { customerId, invoiceDate, items, totalAmount, discountAmount, paidAmount, notes } = await request.json(); // Added paidAmount
 
-    if (!customerId || !items || items.length === 0) {
-      return NextResponse.json({ error: 'Customer and invoice items are required' }, { status: 400 });
+    // 1. Basic validation
+    if (!customerId) {
+      return NextResponse.json({ error: 'Customer is required.' }, { status: 400 });
+    }
+    if (!items || items.length === 0) {
+      return NextResponse.json({ error: 'At least one invoice item is required.' }, { status: 400 });
     }
 
-    // ⭐ Server-side validation for discount and net amount
-    const parsedDiscountAmount = parseFloat(discountAmount || '0') || 0.0;
-    const parsedSubtotalAmount = parseFloat(subtotalAmount || '0') || 0.0;
-    const calculatedNetAmount = Math.max(0, parsedSubtotalAmount - parsedDiscountAmount);
+    // 2. Parse and validate amounts
+    const parsedSubtotalAmount = parseFloat(totalAmount) || 0.0;
+    const parsedDiscountAmount = parseFloat(discountAmount) || 0.0;
+    const parsedPaidAmount = parseFloat(paidAmount) || 0.0; // Use the provided paidAmount
 
-    if (parsedDiscountAmount > parsedSubtotalAmount) {
-        return NextResponse.json({ error: 'Discount amount cannot exceed subtotal amount.' }, { status: 400 });
+    // Ensure discount doesn't exceed subtotal
+    if (parsedDiscountAmount < 0 || parsedDiscountAmount > parsedSubtotalAmount) {
+      return NextResponse.json({ error: 'Discount amount must be between 0 and the subtotal.' }, { status: 400 });
     }
-    // Optionally, you might compare `calculatedNetAmount` with `netAmount` sent from frontend
-    // if (Math.abs(calculatedNetAmount - parseFloat(netAmount)) > 0.01) { /* handle mismatch */ }
 
+    // Calculated net amount
+    const calculatedNetAmount = parsedSubtotalAmount - parsedDiscountAmount;
 
-    // ⭐ Server-side generation of invoice number (authoritative source)
+    // Validate paid amount against net amount
+    if (parsedPaidAmount < 0 || parsedPaidAmount > calculatedNetAmount) {
+        return NextResponse.json({ error: 'Paid amount cannot be negative or exceed the Net Amount.' }, { status: 400 });
+    }
+
+    const initialBalanceDue = calculatedNetAmount - parsedPaidAmount; // Calculate balance due based on initial paid amount
+
+    // Validate each item detail
+    const validatedItems = items.map((item: any) => {
+      const quantity = parseInt(item.quantity);
+      const unitPrice = parseFloat(item.unitPrice);
+
+      if (!item.productId || isNaN(quantity) || quantity <= 0 || isNaN(unitPrice) || unitPrice <= 0) {
+        throw new Error('Invalid product item details: productId, positive quantity, and positive unit price are required for all items.');
+      }
+      return {
+        productId: item.productId,
+        quantity: quantity,
+        unitPrice: unitPrice,
+        total: quantity * unitPrice,
+      };
+    });
+
+    // 3. Determine initial invoice status
+    let status: InvoiceStatus = InvoiceStatus.PENDING;
+    if (initialBalanceDue <= 0) {
+      status = InvoiceStatus.PAID;
+    }
+
+    // 4. Generate unique invoice number
     const nextInvoiceNumber = await generateNextInvoiceNumber();
 
+    // 5. Create invoice and update customer balance within a transaction
     const result = await prisma.$transaction(async (prisma) => {
       const invoice = await prisma.invoice.create({
         data: {
-          invoiceNumber: nextInvoiceNumber, // ⭐ Use server-generated number
+          invoiceNumber: nextInvoiceNumber,
           customerId,
           invoiceDate: invoiceDate ? new Date(invoiceDate) : new Date(),
-          totalAmount: parsedSubtotalAmount, // This is the subtotal
-          discountAmount: parsedDiscountAmount, // ⭐ Save discount
-          netAmount: calculatedNetAmount, // ⭐ Save calculated net amount
+          totalAmount: parsedSubtotalAmount,
+          discountAmount: parsedDiscountAmount,
+          netAmount: calculatedNetAmount,
+          paidAmount: parsedPaidAmount, // Save the provided paid amount
+          balanceDue: initialBalanceDue, // Save the calculated balance due
+          status: status,
           notes,
           items: {
-            create: items.map((item: any) => ({
-              productId: item.productId,
-              quantity: item.quantity,
-              unitPrice: item.unitPrice,
-              total: item.quantity * item.unitPrice,
-            })),
+            create: validatedItems,
           },
         },
         include: {
@@ -54,22 +153,25 @@ export async function POST(request: Request) {
         },
       });
 
-      // Update customer balance based on the final net amount
-      await prisma.customer.update({
-        where: { id: customerId },
-        data: {
-          balance: {
-            decrement: calculatedNetAmount,
-          },
-        },
-      });
+      // Update customer balance: Increment by the initial balanceDue of this new invoice
+      // If the invoice is fully paid initially (balanceDue = 0), then customer balance doesn't change from this invoice.
+      if (initialBalanceDue !== 0) {
+          await prisma.customer.update({
+            where: { id: customerId },
+            data: {
+              balance: {
+                increment: initialBalanceDue,
+              },
+            },
+          });
+      }
 
       return invoice;
     });
 
     return NextResponse.json(result, { status: 201 });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error creating invoice:', error);
-    return NextResponse.json({ error: 'Failed to create invoice', details: (error as Error).message }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to create invoice', details: error.message || 'Unknown error' }, { status: 500 });
   }
 }

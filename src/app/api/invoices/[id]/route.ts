@@ -1,14 +1,13 @@
 // src/app/api/invoices/[id]/route.ts
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-import { InvoiceStatus } from '@prisma/client';
+import { InvoiceStatus } from '@prisma/client'; // Import InvoiceStatus enum
 
-// GET a single invoice
 export async function GET(request: Request, { params }: { params: { id: string } }) {
+  const invoiceId = params.id;
   try {
-    const { id } = params;
     const invoice = await prisma.invoice.findUnique({
-      where: { id },
+      where: { id: invoiceId },
       include: {
         customer: true,
         items: {
@@ -22,100 +21,109 @@ export async function GET(request: Request, { params }: { params: { id: string }
     if (!invoice) {
       return NextResponse.json({ error: 'Invoice not found' }, { status: 404 });
     }
+
     return NextResponse.json(invoice);
   } catch (error) {
-    console.error(`Error fetching invoice ${params.id}:`, error);
-    return NextResponse.json({ error: 'Failed to fetch invoice' }, { status: 500 });
+    console.error(`Error fetching invoice ${invoiceId}:`, error);
+    return NextResponse.json({ error: 'Failed to fetch invoice', details: (error as Error).message }, { status: 500 });
   }
 }
 
-// PUT (Update) an invoice
 export async function PUT(request: Request, { params }: { params: { id: string } }) {
+  const invoiceId = params.id;
   try {
-    const { id } = params;
-    const { customerId, invoiceDate, items, notes, discountAmount: rawDiscountAmount, paidAmount } = await request.json(); // ⭐ Get rawDiscountAmount and paidAmount
+    const {
+      customerId,
+      invoiceDate,
+      items,
+      notes,
+      totalAmount: newSubtotal, // This is the subtotal from frontend
+      discountAmount: newDiscountAmount,
+      paidAmount: newPaidAmount, // Amount paid (can be updated here directly from form)
+    } = await request.json();
 
-    if (!customerId || !items || items.length === 0) {
-      return NextResponse.json({ error: 'Customer and invoice items are required' }, { status: 400 });
+    // 1. Basic validation
+    if (!customerId) {
+      return NextResponse.json({ error: 'Customer is required.' }, { status: 400 });
+    }
+    if (!items || items.length === 0) {
+      return NextResponse.json({ error: 'At least one invoice item is required.' }, { status: 400 });
     }
 
-    const discountAmount = parseFloat(rawDiscountAmount || '0') || 0.0; // ⭐ Parse and default
+    // 2. Fetch the current state of the invoice and its associated customer
+    const oldInvoice = await prisma.invoice.findUnique({
+      where: { id: invoiceId },
+      select: {
+        customerId: true,
+        netAmount: true,
+        paidAmount: true,
+        balanceDue: true, // Crucial to fetch the old balanceDue
+        status: true, // Also fetch old status if needed for logic
+      },
+    });
 
-    let newTotalAmountBeforeDiscount = 0;
-    for (const item of items) {
-      if (item.quantity <= 0 || item.unitPrice <= 0) {
-        return NextResponse.json({ error: 'Quantity and Unit Price must be positive for all items' }, { status: 400 });
+    if (!oldInvoice) {
+      return NextResponse.json({ error: 'Invoice not found' }, { status: 404 });
+    }
+
+    const oldCustomerId = oldInvoice.customerId;
+    const oldBalanceDue = oldInvoice.balanceDue;
+
+    // 3. Parse and validate new amounts from frontend
+    const parsedNewSubtotal = parseFloat(newSubtotal) || 0.0;
+    const parsedNewDiscountAmount = parseFloat(newDiscountAmount) || 0.0;
+    const parsedNewPaidAmount = parseFloat(newPaidAmount) || 0.0;
+
+    // Ensure discount doesn't exceed subtotal
+    if (parsedNewDiscountAmount < 0 || parsedNewDiscountAmount > parsedNewSubtotal) {
+      return NextResponse.json({ error: 'Discount amount must be between 0 and the subtotal.' }, { status: 400 });
+    }
+
+    // Calculate the new netAmount and balanceDue for THIS invoice
+    const newCalculatedNetAmount = parsedNewSubtotal - parsedNewDiscountAmount;
+    const newCalculatedBalanceDue = Math.max(0, newCalculatedNetAmount - parsedNewPaidAmount); // Balance cannot be negative
+
+    // Validate each item detail
+    const validatedItems = items.map((item: any) => {
+      const quantity = parseInt(item.quantity);
+      const unitPrice = parseFloat(item.unitPrice);
+
+      if (!item.productId || isNaN(quantity) || quantity <= 0 || isNaN(unitPrice) || unitPrice <= 0) {
+        throw new Error('Invalid product item details: productId, positive quantity, and positive unit price are required for all items.');
       }
-      newTotalAmountBeforeDiscount += item.quantity * item.unitPrice;
+      return {
+        productId: item.productId,
+        quantity: quantity,
+        unitPrice: unitPrice,
+        total: quantity * unitPrice,
+      };
+    });
+
+    // 4. Determine new invoice status
+    let newStatus: InvoiceStatus = InvoiceStatus.PENDING;
+    if (newCalculatedBalanceDue <= 0) {
+      newStatus = InvoiceStatus.PAID;
     }
+    // Consider adding OVERDUE logic here if you track due dates.
 
-    const newNetAmount = Math.max(0, newTotalAmountBeforeDiscount - discountAmount); // ⭐ Calculate new net amount
-
-    if (discountAmount > newTotalAmountBeforeDiscount) {
-        return NextResponse.json({ error: 'Discount amount cannot exceed total amount before discount.' }, { status: 400 });
-    }
-
-    // Use transaction to ensure atomicity for balance updates
-    const updatedInvoice = await prisma.$transaction(async (prisma) => {
-      // Fetch the old invoice details to revert changes to customer balance
-      const oldInvoice = await prisma.invoice.findUnique({
-        where: { id },
-        select: {
-          netAmount: true, // ⭐ Use netAmount for balance calculations
-          paidAmount: true,
-          customerId: true,
-          status: true,
-        },
-      });
-
-      if (!oldInvoice) {
-        throw new Error('Invoice not found for update.');
-      }
-
-      // Revert old invoice amount from customer balance
-      await prisma.customer.update({
-        where: { id: oldInvoice.customerId },
+    // 5. Perform transaction to update invoice and customer balance
+    const result = await prisma.$transaction(async (prisma) => {
+      // 5.1. Update the Invoice record
+      const updatedInvoice = await prisma.invoice.update({
+        where: { id: invoiceId },
         data: {
-          balance: {
-            increment: oldInvoice.netAmount, // ⭐ Revert using old netAmount
-          },
-        },
-      });
-
-      // Delete old invoice items
-      await prisma.invoiceItem.deleteMany({
-        where: { invoiceId: id },
-      });
-
-      // Determine new invoice status
-      let newStatus: InvoiceStatus = InvoiceStatus.PENDING;
-      if (paidAmount && paidAmount > 0) {
-        if (paidAmount >= newNetAmount) { // ⭐ Compare paidAmount with newNetAmount
-          newStatus = InvoiceStatus.PAID;
-        } else {
-          newStatus = InvoiceStatus.PARTIAL;
-        }
-      }
-
-      // Update the invoice
-      const invoice = await prisma.invoice.update({
-        where: { id },
-        data: {
-          customerId,
-          invoiceDate: invoiceDate ? new Date(invoiceDate) : undefined, // Only update if provided
-          totalAmount: newTotalAmountBeforeDiscount, // ⭐ Update total amount before discount
-          discountAmount: discountAmount, // ⭐ Update discount amount
-          netAmount: newNetAmount, // ⭐ Update net amount
-          notes: notes !== undefined ? notes : undefined, // Only update if provided
-          paidAmount: paidAmount !== undefined ? paidAmount : 0, // ⭐ Update paidAmount
-          status: newStatus, // Set new status
+          customerId, // Customer can be changed
+          invoiceDate: invoiceDate ? new Date(invoiceDate) : undefined, // Update date only if provided
+          totalAmount: parsedNewSubtotal,
+          discountAmount: parsedNewDiscountAmount,
+          netAmount: newCalculatedNetAmount,
+          paidAmount: parsedNewPaidAmount,
+          balanceDue: newCalculatedBalanceDue,
+          status: newStatus, // Update status based on new balanceDue
+          notes,
           items: {
-            create: items.map((item: any) => ({
-              productId: item.productId,
-              quantity: item.quantity,
-              unitPrice: item.unitPrice,
-              total: item.quantity * item.unitPrice,
-            })),
+            deleteMany: {}, // Clear existing items
+            create: validatedItems, // Re-create all items
           },
         },
         include: {
@@ -123,98 +131,100 @@ export async function PUT(request: Request, { params }: { params: { id: string }
         },
       });
 
-      // Update customer balance with the new invoice net amount
-      await prisma.customer.update({
-        where: { id: customerId },
-        data: {
-          balance: {
-            decrement: invoice.netAmount, // ⭐ Decrement using the new netAmount
+      // 5.2. Adjust Customer Balance(s)
+      if (customerId === oldCustomerId) {
+        // If customer hasn't changed, adjust their balance by the change in this invoice's balanceDue
+        const balanceDueChange = newCalculatedBalanceDue - oldBalanceDue;
+        if (balanceDueChange !== 0) { // Only update if there's an actual change
+          await prisma.customer.update({
+            where: { id: customerId },
+            data: {
+              balance: {
+                increment: balanceDueChange, // Add positive change, subtract negative change
+              },
+            },
+          });
+        }
+      } else {
+        // Customer has changed:
+        // Revert old invoice's balance due from old customer's balance
+        await prisma.customer.update({
+          where: { id: oldCustomerId },
+          data: {
+            balance: {
+              decrement: oldBalanceDue,
+            },
           },
-        },
-      });
+        });
+        // Add new invoice's balance due to new customer's balance
+        await prisma.customer.update({
+          where: { id: customerId },
+          data: {
+            balance: {
+              increment: newCalculatedBalanceDue,
+            },
+          },
+        });
+      }
 
-      return invoice;
+      return updatedInvoice;
     });
 
-    return NextResponse.json(updatedInvoice);
+    return NextResponse.json(result, { status: 200 });
   } catch (error: any) {
-    console.error(`Error updating invoice ${params.id}:`, error);
-    return NextResponse.json({ error: error.message || 'Failed to update invoice' }, { status: 500 });
+    console.error(`Error updating invoice ${invoiceId}:`, error);
+    return NextResponse.json({ error: 'Failed to update invoice', details: error.message || 'Unknown error' }, { status: 500 });
   }
 }
 
-// DELETE an invoice (no changes related to discount logic here)
 export async function DELETE(request: Request, { params }: { params: { id: string } }) {
+  const invoiceId = params.id;
   try {
-    const { id } = params;
+    // 1. Fetch invoice details needed for customer balance adjustment
+    const invoiceToDelete = await prisma.invoice.findUnique({
+      where: { id: invoiceId },
+      select: {
+        customerId: true,
+        balanceDue: true, // Need this to adjust customer's balance
+      },
+    });
 
+    if (!invoiceToDelete) {
+      return NextResponse.json({ error: 'Invoice not found' }, { status: 404 });
+    }
+
+    // 2. Perform deletion and balance adjustment in a transaction
     await prisma.$transaction(async (prisma) => {
-      const invoiceToDelete = await prisma.invoice.findUnique({
-        where: { id },
-        select: {
-          customerId: true,
-          netAmount: true, // ⭐ Use netAmount for deletion balance adjustment
-          paidAmount: true,
-          status: true,
-          paymentAllocations: {
-            select: {
-              paymentId: true,
-              allocatedAmount: true,
-            },
-          },
-        },
+      // 2.1. Delete associated PaymentAllocations first (if any)
+      await prisma.paymentAllocation.deleteMany({
+        where: { invoiceId: invoiceId },
       });
 
-      if (!invoiceToDelete) {
-        throw new Error('Invoice not found for deletion.');
-      }
+      // 2.2. Delete associated InvoiceItems
+      await prisma.invoiceItem.deleteMany({
+        where: { invoiceId: invoiceId },
+      });
 
-      // Reverse the balance impact for the customer
+      // 2.3. Delete the Invoice itself
+      await prisma.invoice.delete({
+        where: { id: invoiceId },
+      });
+
+      // 2.4. Adjust customer balance: Decrement by the invoice's balanceDue
+      // This ensures that if the invoice had an outstanding balance, it's removed from the customer's total owed.
       await prisma.customer.update({
         where: { id: invoiceToDelete.customerId },
         data: {
           balance: {
-            increment: invoiceToDelete.netAmount, // ⭐ Revert using netAmount
+            decrement: invoiceToDelete.balanceDue,
           },
         },
-      });
-
-      // Reverse the paidAmount from any linked payments
-      for (const allocation of invoiceToDelete.paymentAllocations) {
-        const payment = await prisma.payment.findUnique({
-          where: { id: allocation.paymentId },
-          select: {
-            amount: true,
-          },
-        });
-
-        if (payment) {
-          // This part requires careful thought. If a payment was partially allocated to THIS invoice,
-          // simply incrementing customer balance for the invoice's net amount is usually sufficient.
-          // Adjusting the *payment* amount might be problematic unless the payment is fully deleted too.
-          // For now, we assume deleting an invoice just frees up the payment allocation.
-        }
-      }
-
-      // Delete payment allocations related to this invoice
-      await prisma.paymentAllocation.deleteMany({
-        where: { invoiceId: id },
-      });
-
-      // Delete invoice items first
-      await prisma.invoiceItem.deleteMany({
-        where: { invoiceId: id },
-      });
-
-      // Finally, delete the invoice
-      await prisma.invoice.delete({
-        where: { id },
       });
     });
 
     return NextResponse.json({ message: 'Invoice deleted successfully' }, { status: 200 });
   } catch (error: any) {
-    console.error(`Error deleting invoice ${params.id}:`, error);
-    return NextResponse.json({ error: error.message || 'Failed to delete invoice' }, { status: 500 });
+    console.error(`Error deleting invoice ${invoiceId}:`, error);
+    return NextResponse.json({ error: 'Failed to delete invoice', details: error.message || 'Unknown error' }, { status: 500 });
   }
 }
