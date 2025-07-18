@@ -4,7 +4,6 @@ import prisma from '@/lib/prisma';
 import { InvoiceStatus } from '@prisma/client';
 
 // Helper function to generate the next invoice number
-// This should be robust in a real application, potentially with locking
 async function generateNextInvoiceNumber() {
   const lastInvoice = await prisma.invoice.findFirst({
     orderBy: { createdAt: 'desc' },
@@ -23,10 +22,30 @@ async function generateNextInvoiceNumber() {
   return 'INV1'; // Fallback if format is unexpected
 }
 
+// Helper function to generate the next payment number (needed for new explicit payments)
+async function generateNextPaymentNumber() {
+  const lastPayment = await prisma.payment.findFirst({
+    orderBy: { createdAt: 'desc' },
+    select: { paymentNumber: true },
+  });
+
+  if (!lastPayment || !lastPayment.paymentNumber) {
+    return 'PAY1';
+  }
+
+  const match = lastPayment.paymentNumber.match(/^PAY(\d+)$/);
+  if (match) {
+    const lastNumber = parseInt(match[1], 10);
+    return `PAY${lastNumber + 1}`;
+  }
+  return 'PAY1'; // Fallback
+}
+
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const customerId = searchParams.get('customerId');
-  const query = searchParams.get('query'); // For general search
+  const query = searchParams.get('query');
   const orderBy = searchParams.get('orderBy') || 'createdAt';
   const direction = searchParams.get('direction') === 'asc' ? 'asc' : 'desc';
   const limit = parseInt(searchParams.get('limit') || '10', 10);
@@ -39,7 +58,6 @@ export async function GET(request: Request) {
       whereClause.customerId = customerId;
     }
     if (query) {
-      // Basic search on invoiceNumber or customer name
       whereClause.OR = [
         { invoiceNumber: { contains: query, mode: 'insensitive' } },
         { customer: { name: { contains: query, mode: 'insensitive' } } },
@@ -75,9 +93,9 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const { customerId, invoiceDate, items, totalAmount, discountAmount, paidAmount, notes } = await request.json(); // Added paidAmount
+    const { customerId, invoiceDate, items, totalAmount, discountAmount, paidAmount, notes } = await request.json();
 
-    // 1. Basic validation
+    // 1. Basic validation and parsing
     if (!customerId) {
       return NextResponse.json({ error: 'Customer is required.' }, { status: 400 });
     }
@@ -85,53 +103,39 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'At least one invoice item is required.' }, { status: 400 });
     }
 
-    // 2. Parse and validate amounts
     const parsedSubtotalAmount = parseFloat(totalAmount) || 0.0;
     const parsedDiscountAmount = parseFloat(discountAmount) || 0.0;
-    const parsedPaidAmount = parseFloat(paidAmount) || 0.0; // Use the provided paidAmount
+    const parsedPaidAmountFromForm = parseFloat(paidAmount) || 0.0; // Amount paid explicitly on form
 
-    // Ensure discount doesn't exceed subtotal
     if (parsedDiscountAmount < 0 || parsedDiscountAmount > parsedSubtotalAmount) {
       return NextResponse.json({ error: 'Discount amount must be between 0 and the subtotal.' }, { status: 400 });
     }
 
-    // Calculated net amount
     const calculatedNetAmount = parsedSubtotalAmount - parsedDiscountAmount;
 
-    // Validate paid amount against net amount
-    if (parsedPaidAmount < 0 || parsedPaidAmount > calculatedNetAmount) {
-        return NextResponse.json({ error: 'Paid amount cannot be negative or exceed the Net Amount.' }, { status: 400 });
+    // Validate paid amount from form against net amount (can't overpay beyond net amount on form)
+    if (parsedPaidAmountFromForm < 0 || parsedPaidAmountFromForm > calculatedNetAmount) {
+        return NextResponse.json({ error: 'Initial paid amount from form cannot be negative or exceed the Invoice Net Amount.' }, { status: 400 });
     }
 
-    const initialBalanceDue = calculatedNetAmount - parsedPaidAmount; // Calculate balance due based on initial paid amount
-
-    // Validate each item detail
     const validatedItems = items.map((item: any) => {
       const quantity = parseInt(item.quantity);
       const unitPrice = parseFloat(item.unitPrice);
-
       if (!item.productId || isNaN(quantity) || quantity <= 0 || isNaN(unitPrice) || unitPrice <= 0) {
         throw new Error('Invalid product item details: productId, positive quantity, and positive unit price are required for all items.');
       }
-      return {
-        productId: item.productId,
-        quantity: quantity,
-        unitPrice: unitPrice,
-        total: quantity * unitPrice,
-      };
+      return { productId: item.productId, quantity, unitPrice, total: quantity * unitPrice };
     });
 
-    // 3. Determine initial invoice status
-    let status: InvoiceStatus = InvoiceStatus.PENDING;
-    if (initialBalanceDue <= 0) {
-      status = InvoiceStatus.PAID;
-    }
-
-    // 4. Generate unique invoice number
+    // 2. Generate invoice number
     const nextInvoiceNumber = await generateNextInvoiceNumber();
 
-    // 5. Create invoice and update customer balance within a transaction
+    // 3. Perform transaction for invoice creation and payment allocation
     const result = await prisma.$transaction(async (prisma) => {
+
+      // Step 3.1: Create the Invoice first with initial values
+      // It starts as pending, with no paid amount, and full net amount due.
+      // Allocations (advance or new payment) will update these.
       const invoice = await prisma.invoice.create({
         data: {
           invoiceNumber: nextInvoiceNumber,
@@ -140,33 +144,129 @@ export async function POST(request: Request) {
           totalAmount: parsedSubtotalAmount,
           discountAmount: parsedDiscountAmount,
           netAmount: calculatedNetAmount,
-          paidAmount: parsedPaidAmount, // Save the provided paid amount
-          balanceDue: initialBalanceDue, // Save the calculated balance due
-          status: status,
+          paidAmount: 0, // Initial state, will be updated by allocations
+          balanceDue: calculatedNetAmount, // Initial state, will be updated by allocations
+          status: InvoiceStatus.PENDING,
           notes,
-          items: {
-            create: validatedItems,
-          },
-        },
-        include: {
-          items: true,
+          items: { create: validatedItems },
         },
       });
 
-      // Update customer balance: Increment by the initial balanceDue of this new invoice
-      // If the invoice is fully paid initially (balanceDue = 0), then customer balance doesn't change from this invoice.
-      if (initialBalanceDue !== 0) {
+      let remainingInvoiceBalance = calculatedNetAmount;
+      let totalPaidAmountOnInvoice = 0; // Accumulates amounts from advance allocations and explicit new payment
+
+      // Step 3.2: Apply existing customer advances (from overpaid payments) first (FIFO)
+      // We need to find payments that have an unallocated balance.
+      // This requires calculating the sum of allocations for each payment.
+      const paymentsWithUnallocatedBalance = await prisma.payment.findMany({
+          where: { customerId: customerId },
+          include: {
+              paymentAllocations: {
+                  select: { allocatedAmount: true }
+              }
+          },
+          orderBy: { paymentDate: 'asc' } // Oldest payments first (FIFO for advance)
+      });
+
+      for (const payment of paymentsWithUnallocatedBalance) {
+          if (remainingInvoiceBalance <= 0) break; // Invoice is fully covered, stop allocating
+
+          const totalAllocatedForThisPayment = payment.paymentAllocations.reduce((sum, alloc) => sum + alloc.allocatedAmount, 0);
+          const unallocatedAmountInThisPayment = payment.amount - totalAllocatedForThisPayment;
+
+          if (unallocatedAmountInThisPayment > 0) { // If there's an actual unallocated amount in this payment
+              const amountFromAdvanceToApply = Math.min(unallocatedAmountInThisPayment, remainingInvoiceBalance);
+
+              if (amountFromAdvanceToApply > 0) {
+                  // Create a new PaymentAllocation for this existing payment towards the new invoice
+                  await prisma.paymentAllocation.create({
+                      data: {
+                          paymentId: payment.id,
+                          invoiceId: invoice.id,
+                          allocatedAmount: amountFromAdvanceToApply,
+                      },
+                  });
+
+                  // Update the current state of the invoice's balance
+                  remainingInvoiceBalance -= amountFromAdvanceToApply;
+                  totalPaidAmountOnInvoice += amountFromAdvanceToApply;
+              }
+          }
+      }
+
+      // Step 3.3: Apply explicit paidAmount from the form (if any remaining balance on invoice)
+      if (parsedPaidAmountFromForm > 0 && remainingInvoiceBalance > 0) {
+          const amountToApplyFromForm = Math.min(parsedPaidAmountFromForm, remainingInvoiceBalance);
+
+          if (amountToApplyFromForm > 0) {
+              const nextPaymentNum = await generateNextPaymentNumber(); // Generate new number for this NEW explicit payment
+
+              // Create a brand new Payment record for the explicit amount from the form
+              const newExplicitPayment = await prisma.payment.create({
+                  data: {
+                      paymentNumber: nextPaymentNum,
+                      customerId: customerId,
+                      amount: parsedPaidAmountFromForm, // Record the full amount from the form
+                      paymentDate: invoice.invoiceDate, // Payment date same as invoice date
+                      notes: `Initial payment from form for Invoice ${invoice.invoiceNumber}.`,
+                  },
+              });
+
+              // Create an Allocation for this new explicit payment
+              await prisma.paymentAllocation.create({
+                  data: {
+                      paymentId: newExplicitPayment.id,
+                      invoiceId: invoice.id,
+                      allocatedAmount: amountToApplyFromForm, // Allocate portion to this invoice
+                  },
+              });
+
+              // Update the current state of the invoice's balance
+              remainingInvoiceBalance -= amountToApplyFromForm;
+              totalPaidAmountOnInvoice += amountToApplyFromForm;
+
+              // If the explicit payment also resulted in an overpayment (i.e., parsedPaidAmountFromForm > amountToApplyFromForm)
+              // This excess will remain as an unallocated amount on 'newExplicitPayment' and can be used as advance later.
+          }
+      }
+
+      // Step 3.4: Finalize Invoice status and update its paidAmount/balanceDue in the database
+      let finalInvoiceStatus: InvoiceStatus = InvoiceStatus.PENDING;
+      if (remainingInvoiceBalance <= 0) {
+          finalInvoiceStatus = InvoiceStatus.PAID;
+          remainingInvoiceBalance = 0; // Ensure it's exactly 0 if fully paid
+      }
+
+      const updatedInvoice = await prisma.invoice.update({
+          where: { id: invoice.id },
+          data: {
+              paidAmount: totalPaidAmountOnInvoice,
+              balanceDue: remainingInvoiceBalance,
+              status: finalInvoiceStatus,
+          },
+          include: {
+            items: true, // Include items for the response
+            customer: true, // Include customer for the response
+          },
+      });
+
+      // Step 3.5: Adjust customer balance based on the final net effect of this invoice and its allocations
+      // The customer's balance changes by:
+      //  (Invoice's original net amount) - (Total amount allocated to this invoice from advance + explicit payment)
+      const netChangeToCustomerBalance = calculatedNetAmount - totalPaidAmountOnInvoice;
+
+      if (netChangeToCustomerBalance !== 0) {
           await prisma.customer.update({
-            where: { id: customerId },
-            data: {
-              balance: {
-                increment: initialBalanceDue,
+              where: { id: customerId },
+              data: {
+                  balance: {
+                      increment: netChangeToCustomerBalance,
+                  },
               },
-            },
           });
       }
 
-      return invoice;
+      return updatedInvoice; // Return the fully updated invoice object
     });
 
     return NextResponse.json(result, { status: 201 });

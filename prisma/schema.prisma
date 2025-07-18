@@ -123,6 +123,6 @@ model PaymentAllocation {
 enum InvoiceStatus {
   PENDING   // Some amount is still due
   PAID      // Fully paid
-  OVERDUE   // Past due date (requires separate scheduled task/logic)
+  PARTIAL   // 
   CANCELLED // Manually cancelled (requires separate action)
 }
