@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { Plus, X } from 'lucide-react';
-import { Product, Customer } from '@prisma/client';
+import { Product, Customer, Invoice } from '@prisma/client';
 import { Combobox } from '@/components/ui/combobox';
 import {
   Table,
@@ -21,6 +21,10 @@ import {
 } from '@/components/ui/table';
 import { Card, CardContent } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
+import { Checkbox } from '@/components/ui/checkbox'; // Import Checkbox
+
+import { printReactComponent } from '@/lib/print-utils';
+import InvoicePrintTemplate from '@/components/invoice-print-template';
 
 // Helper function to generate next invoice number for DISPLAY ONLY
 const generateNextInvoiceNumberForDisplay = (lastInvoiceNumber: string | null): string => {
@@ -32,8 +36,32 @@ const generateNextInvoiceNumberForDisplay = (lastInvoiceNumber: string | null): 
     const lastNumber = parseInt(match[1], 10);
     return `INV${lastNumber + 1}`;
   }
-  return 'INV1'; // Fallback if format is unexpected
+  return 'INV1';
 };
+
+// Define types for data fetched from API for print
+type CompanyInfo = {
+  id: string | null;
+  businessName: string;
+  address1: string | null;
+  mobile: string | null;
+  defaultPrintOnSave: boolean | null;
+};
+
+type InvoiceItemWithProduct = {
+  id: string;
+  productId: string;
+  quantity: number;
+  unitPrice: number;
+  total: number;
+  product: Product;
+};
+
+type InvoiceWithDetails = Invoice & {
+  customer: Customer;
+  items: InvoiceItemWithProduct[];
+};
+
 
 export default function CreateInvoicePage() {
   const router = useRouter();
@@ -51,43 +79,50 @@ export default function CreateInvoicePage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [notes, setNotes] = useState('');
-  const [invoiceNumberDisplay, setInvoiceNumberDisplay] = useState<string>(''); // For display only
+  const [invoiceNumberDisplay, setInvoiceNumberDisplay] = useState<string>('');
   const [discountAmount, setDiscountAmount] = useState<number>(0);
-  const [paidAmount, setPaidAmount] = useState<number>(0); // New state for Paid amount
+  const [paidAmount, setPaidAmount] = useState<number>(0);
 
   const [selectedProductToAdd, setSelectedProductToAdd] = useState<string | null>(null);
   const [quantityToAdd, setQuantityToAdd] = useState<number>(1);
   const [unitPriceToAdd, setUnitPriceToAdd] = useState<number>(0);
   const [invoiceDate, setInvoiceDate] = useState<string>(new Date().toISOString().split('T')[0]);
 
+  const [companyInfo, setCompanyInfo] = useState<CompanyInfo | null>(null);
+  const [shouldPrint, setShouldPrint] = useState<boolean>(true);
 
-  // --- Fetch Customers and Products on component mount ---
+  // --- Fetch Customers, Products, Last Invoice, and Company Info on component mount ---
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [customersRes, productsRes, lastInvoiceRes] = await Promise.all([
+        const [customersRes, productsRes, lastInvoiceRes, companyInfoRes] = await Promise.all([
           fetch('/api/customers'),
           fetch('/api/products'),
-          fetch('/api/invoices?orderBy=createdAt&direction=desc&limit=1'), // Fetch last invoice for display number
+          fetch('/api/invoices?orderBy=createdAt&direction=desc&limit=1'),
+          fetch('/api/company-info'),
         ]);
 
-        if (!customersRes.ok || !productsRes.ok || !lastInvoiceRes.ok) {
+        if (!customersRes.ok || !productsRes.ok || !lastInvoiceRes.ok || !companyInfoRes.ok) {
           throw new Error('Failed to fetch initial data');
         }
 
         const customersData: Customer[] = await customersRes.json();
         const productsData: Product[] = await productsRes.json();
         const lastInvoices = await lastInvoiceRes.json();
+        const companyInfoData: CompanyInfo = await companyInfoRes.json();
+
 
         setCustomers(customersData);
         setProducts(productsData);
+        setCompanyInfo(companyInfoData);
+        setShouldPrint(companyInfoData.defaultPrintOnSave ?? true);
 
         const lastInvNumber = lastInvoices.invoices.length > 0 ? lastInvoices.invoices[0].invoiceNumber : null;
         setInvoiceNumberDisplay(generateNextInvoiceNumberForDisplay(lastInvNumber));
       } catch (error) {
         console.error('Error fetching data:', error);
-        toast.error('Failed to load customers or products or generate invoice number.');
-        setInvoiceNumberDisplay('INV1'); // Fallback
+        toast.error('Failed to load customers, products, or company info.');
+        setInvoiceNumberDisplay('INV1');
       }
     };
 
@@ -111,13 +146,13 @@ export default function CreateInvoicePage() {
     }
   }, [selectedProductToAdd, products]);
 
-  // Calculate Net Amount based on totalAmount (subtotal) and discountAmount
+  // Calculate Net Amount for the current bill
   const netAmount = useMemo(() => {
     return Math.max(0, totalAmount - discountAmount);
   }, [totalAmount, discountAmount]);
 
-  // Calculate Balance Due based on Net Amount and Paid Amount
-  const balanceDue = useMemo(() => {
+  // Calculate Balance Due for the current bill (what's outstanding for this specific invoice)
+  const currentBillBalanceDue = useMemo(() => {
     return Math.max(0, netAmount - paidAmount);
   }, [netAmount, paidAmount]);
 
@@ -159,9 +194,8 @@ export default function CreateInvoicePage() {
       return;
     }
 
-    // New validation for paidAmount
     if (paidAmount < 0 || paidAmount > netAmount) {
-      toast.error('Paid amount must be between 0 and the Net Amount.');
+      toast.error('Paid amount cannot be negative or exceed the Net Amount.');
       return;
     }
 
@@ -171,16 +205,16 @@ export default function CreateInvoicePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           customerId: selectedCustomer.id,
-          invoiceDate: invoiceDate, // Send the selected date
+          invoiceDate: invoiceDate,
           items: invoiceItems.map(item => ({
             productId: item.productId,
             quantity: item.quantity,
             unitPrice: item.unitPrice,
             total: item.total,
           })),
-          totalAmount: totalAmount, // This is the subtotal
+          totalAmount: totalAmount, // Subtotal
           discountAmount: discountAmount,
-          paidAmount: paidAmount, // Send the paid amount
+          paidAmount: paidAmount, // Paid amount is sent to the backend
           notes,
         }),
       });
@@ -190,21 +224,45 @@ export default function CreateInvoicePage() {
         throw new Error(errorData.error || 'Failed to save invoice');
       }
 
+      const newInvoice: InvoiceWithDetails = await response.json();
       toast.success('Invoice created successfully!');
-      resetForm(); // Reset ZUstand store
-      setDiscountAmount(0); // Reset local states
+
+      if (shouldPrint && companyInfo) {
+        printReactComponent(<InvoicePrintTemplate
+          invoice={newInvoice}
+          companyInfo={companyInfo}
+          customerOldBalance={selectedCustomer.balance}
+          currentInvoiceBalanceDue={currentBillBalanceDue}
+        />, {
+          title: `Invoice ${newInvoice.invoiceNumber}`,
+        });
+      } else if (!shouldPrint) {
+        toast.info('Invoice saved. Printing skipped as requested.');
+      } else if (!companyInfo) {
+        toast.warning('Company information not set. Cannot print thermal invoice.');
+      }
+
+      resetForm();
+      setDiscountAmount(0);
       setPaidAmount(0);
       setNotes('');
       setInvoiceDate(new Date().toISOString().split('T')[0]);
 
-      // After saving, re-fetch the *next* invoice number for the form
+      // After saving, re-fetch settings to get the latest defaultPrintOnSave
+      const companyInfoRes = await fetch('/api/company-info');
+      if (companyInfoRes.ok) {
+          const updatedCompanyInfo: CompanyInfo = await companyInfoRes.json();
+          setCompanyInfo(updatedCompanyInfo);
+          setShouldPrint(updatedCompanyInfo.defaultPrintOnSave ?? true);
+      }
+
       const lastInvoiceRes = await fetch('/api/invoices?orderBy=createdAt&direction=desc&limit=1');
       const lastInvoices = await lastInvoiceRes.json();
       const lastInvNumber = lastInvoices.invoices.length > 0 ? lastInvoices.invoices[0].invoiceNumber : null;
       setInvoiceNumberDisplay(generateNextInvoiceNumberForDisplay(lastInvNumber));
 
-      router.push('/invoices'); // Redirect to invoice list
-      router.refresh(); // Revalidate data on invoice list page
+      router.push('/invoices');
+      router.refresh();
     } catch (error: any) {
       console.error(error);
       toast.error(error.message || 'Error saving invoice.');
@@ -225,7 +283,7 @@ export default function CreateInvoicePage() {
                   id="invoiceNumber"
                   value={invoiceNumberDisplay}
                   className="w-[120px]"
-                  disabled // Display only, backend generates actual
+                  disabled
                 />
               </div>
             </div>
@@ -271,17 +329,15 @@ export default function CreateInvoicePage() {
                 Phone: {selectedCustomer.phone}
               </p>
               <p className="text-sm font-bold mt-2">
-                Current Balance: ₹{selectedCustomer.balance.toFixed(2)}
+                Current Customer Balance: ₹{selectedCustomer.balance.toFixed(2)}
               </p>
             </div>
           )}
 
           <Separator />
 
-          {/* --- Product Line Items Table and Add New Product Section --- */}
           <div className="space-y-4">
             <h3 className="text-lg font-semibold">Products</h3>
-            {/* Add New Product Section */}
             <div className="flex flex-wrap items-end gap-4">
               <div className="flex-1 min-w-[200px] sm:min-w-[250px] md:min-w-[300px] space-y-2">
                 <Label htmlFor="product">Add Product</Label>
@@ -336,7 +392,6 @@ export default function CreateInvoicePage() {
               </Button>
             </div>
 
-            {/* Product Items Table */}
             {invoiceItems.length > 0 && (
               <Table>
                 <TableHeader>
@@ -408,7 +463,6 @@ export default function CreateInvoicePage() {
 
           <Separator />
 
-          {/* --- Totals, Discount, Paid Amount & Notes --- */}
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="notes">Notes</Label>
@@ -418,16 +472,27 @@ export default function CreateInvoicePage() {
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Add any notes for the invoice..."
               />
+              <div className="flex items-center space-x-2 mt-4">
+                <Checkbox
+                  id="shouldPrint"
+                  checked={shouldPrint}
+                  onCheckedChange={(checked) => setShouldPrint(Boolean(checked))}
+                />
+                <label
+                  htmlFor="shouldPrint"
+                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                >
+                  Print invoice after saving
+                </label>
+              </div>
             </div>
             <div className="flex flex-col items-end gap-2 text-right">
-              {/* Subtotal from store's totalAmount */}
               <div className="flex justify-between items-center w-full max-w-xs">
                 <span className="text-lg font-semibold">Subtotal:</span>
                 <span className="text-lg font-semibold">
                   ₹{totalAmount.toFixed(2)}
                 </span>
               </div>
-              {/* Discount Input Field */}
               <div className="flex justify-between items-center w-full max-w-xs">
                 <Label htmlFor="discountAmount" className="text-lg font-semibold">Discount (₹):</Label>
                 <Input
@@ -441,14 +506,12 @@ export default function CreateInvoicePage() {
                   className="w-[120px] text-right"
                 />
               </div>
-              {/* Net Amount Display */}
               <div className="flex justify-between items-center w-full max-w-xs">
                 <span className="text-xl font-bold">Net Amount:</span>
                 <span className="text-3xl font-extrabold text-primary">
                   ₹{netAmount.toFixed(2)}
                 </span>
               </div>
-              {/* New Paid Amount Input Field */}
               <div className="flex justify-between items-center w-full max-w-xs">
                 <Label htmlFor="paidAmount" className="text-lg font-semibold">Paid Amount (₹):</Label>
                 <Input
@@ -462,11 +525,10 @@ export default function CreateInvoicePage() {
                   className="w-[120px] text-right"
                 />
               </div>
-              {/* Balance Due Display */}
               <div className="flex justify-between items-center w-full max-w-xs text-primary">
-                <span className="text-xl font-bold">Balance Due:</span>
+                <span className="text-xl font-bold">Bill Balance Due:</span>
                 <span className="text-2xl font-extrabold">
-                  ₹{balanceDue.toFixed(2)}
+                  ₹{currentBillBalanceDue.toFixed(2)}
                 </span>
               </div>
               <div className="flex gap-2 mt-4">
@@ -476,6 +538,7 @@ export default function CreateInvoicePage() {
                   setPaidAmount(0);
                   setNotes('');
                   setInvoiceDate(new Date().toISOString().split('T')[0]);
+                  setShouldPrint(companyInfo?.defaultPrintOnSave ?? true);
                 }}>
                   Reset Form
                 </Button>

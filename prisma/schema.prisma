@@ -13,12 +13,29 @@ datasource db {
 // --- CompanyInfo Model ---
 // Represents the company's information.
 model CompanyInfo {
-  id           String  @id @default(cuid())
-  businessName String
-  address1     String?
-  mobile       String?
+  id                 String    @id @default(uuid())
+  businessName       String    @unique
+  address1           String?
+  address2           String?
+  city               String?
+  state              String?
+  zipCode            String?
+  country            String?
+  phone              String?
+  mobile             String?
+  email              String?
+  website            String?
+  logoUrl            String?
+  gstin              String?
+  bankName           String?
+  bankAccountNo      String?
+  ifscCode           String?
+  upiId              String?
+  // New field
+  defaultPrintOnSave Boolean   @default(true) // Default to true for existing installations
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 }
-
 // --- Customer Model ---
 // Represents a B2B customer (e.g., a restaurant or shop).
 model Customer {

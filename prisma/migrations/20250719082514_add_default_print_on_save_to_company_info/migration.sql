@@ -6,7 +6,24 @@ CREATE TABLE "CompanyInfo" (
     "id" TEXT NOT NULL,
     "businessName" TEXT NOT NULL,
     "address1" TEXT,
+    "address2" TEXT,
+    "city" TEXT,
+    "state" TEXT,
+    "zipCode" TEXT,
+    "country" TEXT,
+    "phone" TEXT,
     "mobile" TEXT,
+    "email" TEXT,
+    "website" TEXT,
+    "logoUrl" TEXT,
+    "gstin" TEXT,
+    "bankName" TEXT,
+    "bankAccountNo" TEXT,
+    "ifscCode" TEXT,
+    "upiId" TEXT,
+    "defaultPrintOnSave" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "CompanyInfo_pkey" PRIMARY KEY ("id")
 );
@@ -98,6 +115,9 @@ CREATE TABLE "PaymentAllocation" (
 
     CONSTRAINT "PaymentAllocation_pkey" PRIMARY KEY ("id")
 );
+
+-- CreateIndex
+CREATE UNIQUE INDEX "CompanyInfo_businessName_key" ON "CompanyInfo"("businessName");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "Customer_code_key" ON "Customer"("code");

@@ -31,6 +31,7 @@ export function Navbar() {
     { name: "Products", href: "/products", icon: Package2 },
     { name: "Invoices", href: "/invoices", icon: DollarSign },
     { name: "Payments", href: "/payments", icon: ReceiptText },
+    { name: "Settings", href: "/settings", icon: ReceiptText },
   ];
 
   return (

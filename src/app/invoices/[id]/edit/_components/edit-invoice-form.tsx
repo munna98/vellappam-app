@@ -20,10 +20,14 @@ import {
 } from '@/components/ui/table';
 import { Card, CardContent } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
+import { Checkbox } from '@/components/ui/checkbox'; // Import Checkbox
 
-// --- Type Definitions (can be in a shared types file) ---
+import { printReactComponent } from '@/lib/print-utils';
+import InvoicePrintTemplate from '@/components/invoice-print-template';
+
+// --- Type Definitions ---
 export type FullInvoiceItem = {
-  id: string; // The InvoiceItem's ID
+  id: string;
   productId: string;
   quantity: number;
   unitPrice: number;
@@ -36,7 +40,6 @@ export type FullInvoice = Invoice & {
   items: FullInvoiceItem[];
 };
 
-// Represents an item in the form's state
 interface FormInvoiceItem {
   id: string; // Unique ID for React list key (can be existing item's ID or a new UUID for new items)
   productId: string;
@@ -46,6 +49,14 @@ interface FormInvoiceItem {
   unitPrice: number;
   total: number;
 }
+
+type CompanyInfo = {
+  id: string | null;
+  businessName: string;
+  address1: string | null;
+  mobile: string | null;
+  defaultPrintOnSave: boolean | null;
+};
 // --- End Type Definitions ---
 
 interface EditInvoiceFormProps {
@@ -82,32 +93,53 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
   const [quantityToAdd, setQuantityToAdd] = useState<number>(1);
   const [unitPriceToAdd, setUnitPriceToAdd] = useState<number>(0);
 
+  const [companyInfo, setCompanyInfo] = useState<CompanyInfo | null>(null);
+  const [shouldPrint, setShouldPrint] = useState<boolean>(true);
+
+  // Store the customer's balance *before* the impact of this invoice was added
+  // This is for display on the printout as "Previous Balance"
+  const [customerBalanceBeforeThisInvoice, setCustomerBalanceBeforeThisInvoice] = useState<number>(0);
+
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [customersRes, productsRes] = await Promise.all([
+        const [customersRes, productsRes, companyInfoRes] = await Promise.all([
           fetch('/api/customers'),
           fetch('/api/products'),
+          fetch('/api/company-info'),
         ]);
 
-        if (!customersRes.ok || !productsRes.ok) {
+        if (!customersRes.ok || !productsRes.ok || !companyInfoRes.ok) {
           throw new Error('Failed to fetch initial data.');
         }
 
         const customersData: Customer[] = await customersRes.json();
         const productsData: Product[] = await productsRes.json();
+        const companyInfoData: CompanyInfo = await companyInfoRes.json();
+
 
         setCustomers(customersData);
         setProducts(productsData);
+        setCompanyInfo(companyInfoData);
         setSelectedCustomer(customersData.find(c => c.id === initialInvoice.customerId) || null);
+        setShouldPrint(companyInfoData.defaultPrintOnSave ?? true);
+
+        // Calculate customer's balance *before* this invoice's impact
+        // Customer's current balance - this invoice's current balanceDue
+        // We need the customer's *actual* current balance from the fresh fetch
+        const customerActualCurrentBalance = customersData.find(c => c.id === initialInvoice.customerId)?.balance || 0;
+        const calculatedBalanceBeforeThisInvoice = customerActualCurrentBalance - initialInvoice.balanceDue;
+        setCustomerBalanceBeforeThisInvoice(calculatedBalanceBeforeThisInvoice);
+
+
       } catch (error) {
         console.error('Error fetching initial data:', error);
         toast.error('Failed to load initial data.');
       }
     };
     fetchData();
-  }, [initialInvoice.customerId]);
+  }, [initialInvoice.customerId, initialInvoice.balanceDue]); // Depend on initialInvoice for recalculation
 
   // Update unitPriceToAdd when a product is selected in the "add new product" row
   useEffect(() => {
@@ -194,7 +226,8 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
     return Math.max(0, subtotal - discountAmount);
   }, [subtotal, discountAmount]);
 
-  const currentBalanceDue = useMemo(() => {
+  // Balance due for this specific bill (after current changes)
+  const currentBillBalanceDue = useMemo(() => {
     return Math.max(0, netAmount - paidAmount);
   }, [netAmount, paidAmount]);
   // --- End Calculations ---
@@ -236,13 +269,14 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
         body: JSON.stringify({
           customerId: selectedCustomer.id,
           invoiceDate,
-          // Map `items` to the structure expected by the API: exclude 'id', 'productName', 'productCode'
-          // The backend expects productId, quantity, unitPrice, total
-          items: items.map(({ id, productName, productCode, ...rest }) => rest),
+          items: items.map(({ id, productName, productCode, ...rest }) => ({
+            ...rest,
+            id: initialInvoice.items.some(initialItem => initialItem.id === id) ? id : undefined,
+          })),
           notes,
           totalAmount: subtotal,
           discountAmount,
-          paidAmount,
+          paidAmount, // Paid amount is sent to the backend
         }),
       });
 
@@ -251,9 +285,26 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
         throw new Error(errorData.error || 'Failed to update invoice');
       }
 
+      const updatedInvoice: FullInvoice = await response.json();
       toast.success('Invoice updated successfully!');
+
+      if (shouldPrint && companyInfo) {
+        printReactComponent(<InvoicePrintTemplate
+          invoice={updatedInvoice}
+          companyInfo={companyInfo}
+          customerOldBalance={customerBalanceBeforeThisInvoice}
+          currentInvoiceBalanceDue={currentBillBalanceDue}
+        />, {
+          title: `Invoice ${updatedInvoice.invoiceNumber}`,
+        });
+      } else if (!shouldPrint) {
+        toast.info('Invoice saved. Printing skipped as requested.');
+      } else if (!companyInfo) {
+        toast.warning('Company information not set. Cannot print thermal invoice.');
+      }
+
       router.push('/invoices');
-      router.refresh(); // Refresh data on the page
+      router.refresh();
     } catch (error: any) {
       console.error(error);
       toast.error(error.message || 'Error updating invoice.');
@@ -262,7 +313,7 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
 
   return (
     <div className="container mx-auto py-10">
-      <h1 className="text-3xl font-bold mb-8">Edit Invoice</h1> {/* Title adjusted for edit */}
+      <h1 className="text-3xl font-bold mb-8">Edit Invoice</h1>
       <Card className="max-w-6xl mx-auto p-6 space-y-8">
         <CardContent className="p-0 space-y-6">
           {/* --- Invoice Number & Date & Customer Selection --- */}
@@ -274,7 +325,7 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
                   id="invoiceNumber"
                   value={initialInvoice.invoiceNumber}
                   className="w-[180px]"
-                  disabled // Disabled as it's an existing number
+                  disabled
                 />
               </div>
             </div>
@@ -316,13 +367,12 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
               <p className="font-semibold">{selectedCustomer.name}</p>
               <p className="text-sm text-muted-foreground">{selectedCustomer.address}</p>
               <p className="text-sm text-muted-foreground">Phone: {selectedCustomer.phone}</p>
-              <p className="text-sm font-bold mt-2">Current Balance: ₹{selectedCustomer.balance.toFixed(2)}</p>
+              <p className="text-sm font-bold mt-2">Current Customer Balance: ₹{selectedCustomer.balance.toFixed(2)}</p>
             </div>
           )}
 
           <Separator />
 
-          {/* --- Product Line Items Table and Add New Product Section --- */}
           <div className="space-y-4">
             <h3 className="text-lg font-semibold">Invoice Items</h3>
             {items.length > 0 && (
@@ -339,7 +389,7 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
                 </TableHeader>
                 <TableBody>
                   {items.map((item) => (
-                    <TableRow key={item.id}> {/* Use item.id as key */}
+                    <TableRow key={item.id}>
                       <TableCell>{item.productCode}</TableCell>
                       <TableCell className="font-medium">{item.productName}</TableCell>
                       <TableCell className="w-[120px]">
@@ -383,7 +433,6 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
               </Table>
             )}
 
-            {/* --- Add New Product Section (below table) --- */}
             <div className="flex flex-wrap items-end gap-4 mt-4">
               <div className="flex-1 min-w-[200px] sm:min-w-[250px] md:min-w-[300px] space-y-2">
                 <Label htmlFor="productToAdd">Add New Product</Label>
@@ -438,7 +487,6 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
 
           <Separator />
 
-          {/* --- Totals, Discount, Paid Amount, and Balance Due --- */}
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="notes">Notes</Label>
@@ -448,6 +496,19 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Any specific notes for this invoice..."
               />
+              <div className="flex items-center space-x-2 mt-4">
+                <Checkbox
+                  id="shouldPrint"
+                  checked={shouldPrint}
+                  onCheckedChange={(checked) => setShouldPrint(Boolean(checked))}
+                />
+                <label
+                  htmlFor="shouldPrint"
+                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                >
+                  Print invoice after saving
+                </label>
+              </div>
             </div>
             <div className="flex flex-col items-end gap-2 text-right">
               <div className="flex justify-between items-center w-full max-w-xs">
@@ -485,8 +546,8 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
                 />
               </div>
               <div className="flex justify-between items-center w-full max-w-xs text-primary">
-                <span className="text-xl font-bold">Balance Due:</span>
-                <span className="text-2xl font-extrabold">₹{currentBalanceDue.toFixed(2)}</span>
+                <span className="text-xl font-bold">Bill Balance Due:</span>
+                <span className="text-2xl font-extrabold">₹{currentBillBalanceDue.toFixed(2)}</span>
               </div>
               <div className="flex gap-2 mt-4">
                 <Button variant="outline" onClick={() => router.push('/invoices')}>
