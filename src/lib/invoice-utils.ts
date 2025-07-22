@@ -12,7 +12,7 @@ export async function generateNextInvoiceNumber(): Promise<string> {
     },
   });
 
-  let nextNumber = 1;
+  let nextNumber = 1; 
 
   if (latestInvoice && latestInvoice.invoiceNumber) {
     // Extract the number part from the latest invoice number (e.g., "INV123" -> 123)

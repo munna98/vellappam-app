@@ -16,56 +16,48 @@ import {
 } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
-import { useEffect } from 'react'; // Import useEffect
+import { useEffect, useState } from 'react';
 
-// Define your form schema
 const formSchema = z.object({
   name: z.string().min(2, { message: 'Product Name is required.' }),
-  code: z.string().min(1, { message: 'Product Code is required.' }), // Code is required
-  price: z.number().min(0.01, { message: 'Price must be a positive number.' }),
+  code: z.string().min(1, { message: 'Product Code is required.' }),
+  price: z.number().min(0, { message: 'Price must be a positive number.' }),
   unit: z.string().min(1, { message: 'Unit is required.' }),
 });
 
-// Helper function to generate next product code
-const generateNextProductCode = (lastCode: string | null): string => {
-  if (!lastCode) {
-    return '1';
-  }
-  const lastNumber = parseInt(lastCode, 10);
-  if (!isNaN(lastNumber)) {
-    return `${lastNumber + 1}`;
-  }
-  return '1'; // Fallback if format is unexpected or not numeric
-};
-
 export default function NewProductPage() {
   const router = useRouter();
+  const [isLoading, setIsLoading] = useState(true);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       name: '',
-      code: '', // Will be set by useEffect
-      price: 0.01, // Default to a valid price
-      unit: 'pcs', // Default to a common unit
+      code: 'Loading...', // Initial state
+      price: 0,
+      unit: 'pcs',
     },
   });
 
-  // Effect to generate initial product code
+  // Effect to fetch next product code on component mount
   useEffect(() => {
-    const fetchLastProductCode = async () => {
+    const fetchNextProductCode = async () => {
       try {
-        const response = await fetch('/api/products?orderBy=createdAt&direction=desc&limit=1');
-        const products = await response.json();
-        const lastCode = products.length > 0 ? products[0].code : null;
-        const nextCode = generateNextProductCode(lastCode);
-        form.setValue('code', nextCode); // Set the generated code as default
+        const response = await fetch('/api/products/next-code');
+        if (!response.ok) {
+          throw new Error('Failed to fetch next product code');
+        }
+        const { nextCode } = await response.json();
+        form.setValue('code', nextCode);
       } catch (error) {
-        console.error('Failed to fetch last product code for auto-generation:', error);
-        form.setValue('code', '1'); // Fallback if API fails
+        console.error('Error fetching next product code:', error);
+        form.setValue('code', '1');
+        toast.error('Failed to generate product code. Using default.');
+      } finally {
+        setIsLoading(false);
       }
     };
-    fetchLastProductCode();
+    fetchNextProductCode();
   }, [form]);
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
@@ -82,8 +74,8 @@ export default function NewProductPage() {
       }
 
       toast.success('Product created successfully!');
-      router.push('/products'); // Redirect to the product list
-      router.refresh(); // Revalidate data
+      router.push('/products');
+      router.refresh();
     } catch (error: any) {
       console.error(error);
       toast.error(error.message || 'Error creating product.');
@@ -115,7 +107,11 @@ export default function NewProductPage() {
               <FormItem>
                 <FormLabel>Product Code</FormLabel>
                 <FormControl>
-                  <Input placeholder="e.g., 1, 2, 3" {...field} />
+                  <Input 
+                    placeholder="e.g., 1, 2, 3" 
+                    {...field} 
+                    disabled={isLoading}
+                  />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -135,7 +131,7 @@ export default function NewProductPage() {
                     placeholder="Enter price"
                     {...field}
                     onChange={(e) => field.onChange(parseFloat(e.target.value))}
-                    value={field.value === 0 ? '' : field.value} // Handle 0 for initial empty input
+                    value={field.value === 0 ? '' : field.value}
                   />
                 </FormControl>
                 <FormMessage />
@@ -155,7 +151,9 @@ export default function NewProductPage() {
               </FormItem>
             )}
           />
-          <Button type="submit">Create Product</Button>
+          <Button type="submit" disabled={isLoading}>
+            {isLoading ? 'Creating...' : 'Create Product'}
+          </Button>
         </form>
       </Form>
     </div>

@@ -76,14 +76,13 @@ function PaymentTable({ payments }: { payments: any[] }) {
   }
 
   return (
-    <Table className="mt-4">
-      <TableCaption>A list of recorded payments.</TableCaption>
+    <div className="rounded-md border">
+    <Table>
       <TableHeader>
         <TableRow>
           <TableHead>Payment #</TableHead>
           <TableHead>Customer</TableHead>
           <TableHead>Date</TableHead>
-          {/* Removed Payment Method column */}
           <TableHead className="text-right">Amount (₹)</TableHead>
           <TableHead>Allocated Invoices</TableHead>
           <TableHead className="text-right">Actions</TableHead>
@@ -95,7 +94,6 @@ function PaymentTable({ payments }: { payments: any[] }) {
             <TableCell className="font-medium">{payment.paymentNumber}</TableCell>
             <TableCell>{payment.customer?.name || 'N/A'}</TableCell>
             <TableCell>{format(new Date(payment.paymentDate), 'PPP')}</TableCell>
-            {/* Removed Payment Method cell */}
             <TableCell className="text-right">₹{payment.amount.toFixed(2)}</TableCell>
             <TableCell className="text-sm text-muted-foreground">
               {payment.allocatedTo && payment.allocatedTo.length > 0 ? (
@@ -122,5 +120,6 @@ function PaymentTable({ payments }: { payments: any[] }) {
         ))}
       </TableBody>
     </Table>
+    </div>
   );
 }

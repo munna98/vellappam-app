@@ -2,8 +2,6 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 
-// GET /api/products
-// Can accept query params for ordering and limiting
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -29,7 +27,6 @@ export async function GET(request: Request) {
   }
 }
 
-// POST /api/products (No changes needed here unless you want to add more validation)
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -37,6 +34,11 @@ export async function POST(request: Request) {
 
     if (!name || !code || !price || !unit) {
       return NextResponse.json({ error: 'All fields are required' }, { status: 400 });
+    }
+
+    // Validate code format
+    if (!/^\d+$/.test(code) || parseInt(code) <= 0) {
+      return NextResponse.json({ error: 'Product code must be a positive number' }, { status: 400 });
     }
 
     const newProduct = await prisma.product.create({
@@ -50,8 +52,10 @@ export async function POST(request: Request) {
     return NextResponse.json(newProduct, { status: 201 });
   } catch (error: any) {
     console.error('Error creating product:', error);
-    if (error.code === 'P2002' && error.meta?.target?.includes('code')) {
-      return NextResponse.json({ error: 'Product code already exists.' }, { status: 409 });
+    if (error.code === 'P2002') {
+      if (error.meta?.target?.includes('code')) {
+        return NextResponse.json({ error: 'Product code already exists.' }, { status: 409 });
+      }
     }
     return NextResponse.json({ error: 'Failed to create product' }, { status: 500 });
   }

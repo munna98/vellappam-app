@@ -18,7 +18,6 @@ import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { useEffect, useState } from 'react';
 
-// 1. Define your form schema using Zod
 const formSchema = z.object({
   name: z.string().min(2, { message: 'Business Name is required.' }),
   code: z.string().min(1, { message: 'Customer Code is required.' }),
@@ -27,30 +26,18 @@ const formSchema = z.object({
   address: z.string().optional().nullable(),
 });
 
-// Helper function to generate next customer code (e.g., CUST1, CUST2)
-const generateNextCustomerCode = (lastCode: string | null): string => {
-  if (!lastCode) {
-    return 'CUST1';
-  }
-  const match = lastCode.match(/^CUST(\d+)$/);
-  if (match) {
-    const lastNumber = parseInt(match[1], 10);
-    return `CUST${lastNumber + 1}`;
-  }
-  return 'CUST1'; // Fallback if format is unexpected
-};
-
 export default function NewCustomerPage() {
   const router = useRouter();
+  const [isLoading, setIsLoading] = useState(true);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       name: '',
-      code: '',
-      contactPerson: '', // Default to empty string
-      phone: '',         // Default to empty string
-      address: '',       // Default to empty string
+      code: 'Loading...', // Initial state
+      contactPerson: '',
+      phone: '',
+      address: '',
     },
   });
 
@@ -63,21 +50,25 @@ export default function NewCustomerPage() {
     }
   }, [businessName, form]);
 
-  // Effect to generate initial customer code on component mount
+  // Effect to fetch next customer code on component mount
   useEffect(() => {
-    const fetchLastCustomerCode = async () => {
+    const fetchNextCustomerCode = async () => {
       try {
-        const response = await fetch('/api/customers?orderBy=createdAt&direction=desc&limit=1');
-        const customers = await response.json();
-        const lastCode = customers.length > 0 ? customers[0].code : null;
-        const nextCode = generateNextCustomerCode(lastCode);
+        const response = await fetch('/api/customers/next-code');
+        if (!response.ok) {
+          throw new Error('Failed to fetch next customer code');
+        }
+        const { nextCode } = await response.json();
         form.setValue('code', nextCode);
       } catch (error) {
-        console.error('Failed to fetch last customer code for auto-generation:', error);
+        console.error('Error fetching next customer code:', error);
         form.setValue('code', 'CUST1');
+        toast.error('Failed to generate customer code. Using default.');
+      } finally {
+        setIsLoading(false);
       }
     };
-    fetchLastCustomerCode();
+    fetchNextCustomerCode();
   }, [form]);
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
@@ -127,7 +118,11 @@ export default function NewCustomerPage() {
               <FormItem>
                 <FormLabel>Customer Code</FormLabel>
                 <FormControl>
-                  <Input placeholder="e.g., CUST1" {...field} />
+                  <Input 
+                    placeholder="e.g., CUST1" 
+                    {...field} 
+                    disabled={isLoading}
+                  />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -140,7 +135,11 @@ export default function NewCustomerPage() {
               <FormItem>
                 <FormLabel>Contact Person</FormLabel>
                 <FormControl>
-                  <Input placeholder="Enter contact person's name" {...field} value={field.value || ''} />
+                  <Input 
+                    placeholder="Enter contact person's name" 
+                    {...field} 
+                    value={field.value || ''} 
+                  />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -153,7 +152,11 @@ export default function NewCustomerPage() {
               <FormItem>
                 <FormLabel>Phone Number</FormLabel>
                 <FormControl>
-                  <Input placeholder="Enter phone number" {...field} value={field.value || ''} />
+                  <Input 
+                    placeholder="Enter phone number" 
+                    {...field} 
+                    value={field.value || ''} 
+                  />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -166,13 +169,19 @@ export default function NewCustomerPage() {
               <FormItem>
                 <FormLabel>Address</FormLabel>
                 <FormControl>
-                  <Input placeholder="Enter address" {...field} value={field.value || ''} />
+                  <Input 
+                    placeholder="Enter address" 
+                    {...field} 
+                    value={field.value || ''} 
+                  />
                 </FormControl>
                 <FormMessage />
               </FormItem>
             )}
           />
-          <Button type="submit">Create Customer</Button>
+          <Button type="submit" disabled={isLoading}>
+            {isLoading ? 'Creating...' : 'Create Customer'}
+          </Button>
         </form>
       </Form>
     </div>

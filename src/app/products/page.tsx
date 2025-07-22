@@ -50,8 +50,8 @@ function ProductTable({ products }: { products: any[] }) {
   }
 
   return (
+    <div className="rounded-md border"> 
     <Table>
-      <TableCaption>A list of your available products.</TableCaption>
       <TableHeader>
         <TableRow>
           <TableHead>Code</TableHead>
@@ -82,5 +82,6 @@ function ProductTable({ products }: { products: any[] }) {
         ))}
       </TableBody>
     </Table>
+    </div>
   );
 }

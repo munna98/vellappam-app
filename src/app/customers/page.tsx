@@ -50,8 +50,8 @@ function CustomerTable({ customers }: { customers: any[] }) {
   }
 
   return (
+    <div className="rounded-md border">
     <Table>
-      <TableCaption>A list of your registered customers.</TableCaption>
       <TableHeader>
         <TableRow>
           <TableHead>Code</TableHead> {/* Display Code */}
@@ -84,5 +84,6 @@ function CustomerTable({ customers }: { customers: any[] }) {
         ))}
       </TableBody>
     </Table>
+    </div>
   );
 }
