@@ -2,7 +2,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+// import { useRouter } from 'next/navigation'; // No longer needed if using onDelete callback
 import { Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -14,17 +14,18 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
+  AlertDialogTrigger, 
 } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 
 interface DeleteInvoiceButtonProps {
   invoiceId: string;
   invoiceNumber: string;
+  onDelete?: (deletedId: string) => void; // Add this prop
 }
 
-export function DeleteInvoiceButton({ invoiceId, invoiceNumber }: DeleteInvoiceButtonProps) {
-  const router = useRouter();
+export function DeleteInvoiceButton({ invoiceId, invoiceNumber, onDelete }: DeleteInvoiceButtonProps) {
+  // const router = useRouter(); // Removed
   const [isLoading, setIsLoading] = useState(false);
 
   const handleDelete = async () => {
@@ -40,7 +41,10 @@ export function DeleteInvoiceButton({ invoiceId, invoiceNumber }: DeleteInvoiceB
       }
 
       toast.success(`Invoice "${invoiceNumber}" deleted successfully!`);
-      router.refresh(); // Revalidate data on the invoices page
+      if (onDelete) { // Call the onDelete callback if provided
+        onDelete(invoiceId);
+      }
+      // router.refresh(); // Removed: parent will handle state refresh via onDelete
     } catch (error: any) {
       console.error('Error deleting invoice:', error);
       toast.error(error.message || 'Error deleting invoice.');

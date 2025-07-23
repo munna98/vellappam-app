@@ -2,41 +2,57 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 
-// GET /api/customers
-// Can accept query params for ordering and limiting, e.g., ?orderBy=createdAt&direction=desc&limit=1
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const orderBy = searchParams.get('orderBy') || 'name';
-    const direction = searchParams.get('direction') || 'asc';
-    const limit = searchParams.get('limit');
+    const search = searchParams.get('search') || '';
+    const page = parseInt(searchParams.get('page') || '1', 10);
+    const limit = parseInt(searchParams.get('limit') || '10', 10);
+    const skip = (page - 1) * limit;
 
-    const findManyArgs: any = {
-      orderBy: {
-        [orderBy]: direction,
-      },
-    };
-
-    if (limit) {
-      findManyArgs.take = parseInt(limit, 10);
+    const where: any = {};
+    if (search) {
+      where.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { code: { contains: search, mode: 'insensitive' } },
+        { contactPerson: { contains: search, mode: 'insensitive' } },
+        { phone: { contains: search } },
+      ];
     }
 
-    const customers = await prisma.customer.findMany(findManyArgs);
-    return NextResponse.json(customers);
+    const [customers, totalCount] = await Promise.all([
+      prisma.customer.findMany({
+        where,
+        orderBy: {
+          createdAt: 'desc',
+        },
+        take: limit,
+        skip,
+      }),
+      prisma.customer.count({ where }),
+    ]);
+
+    return NextResponse.json({
+      data: customers,
+      pagination: {
+        total: totalCount,
+        totalPages: Math.ceil(totalCount / limit),
+        currentPage: page,
+        limit,
+      },
+    });
   } catch (error) {
     console.error('Error fetching customers:', error);
     return NextResponse.json({ error: 'Failed to fetch customers' }, { status: 500 });
   }
 }
 
-// POST /api/customers (No changes here for now, logic will be in frontend)
 export async function POST(request: Request) {
   try {
     const body = await request.json();
     const { name, code, contactPerson, phone, address } = body;
 
-    // You can add validation here if needed
-    if (!name || !code) { // Code is now required
+    if (!name || !code) {
       return NextResponse.json({ error: 'Name and Code are required' }, { status: 400 });
     }
 

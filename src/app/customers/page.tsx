@@ -1,31 +1,139 @@
-// src/app/customers/page.tsx
-import { Suspense } from 'react';
+'use client';
+
+import { useState, useEffect } from 'react';
+import Link from 'next/link';
+import { useDebounce } from '@/lib/useDebounce';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 import {
   Table,
   TableBody,
-  TableCaption,
   TableCell,
   TableHead,
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Button } from '@/components/ui/button';
-import { PlusCircle, Edit, Trash2 } from 'lucide-react';
-import Link from 'next/link';
-import prisma from '@/lib/prisma';
-import { DeleteCustomerButton } from './_components/delete-customer-button'; // New component
+import { PlusCircle, Edit } from 'lucide-react';
+import { DeleteCustomerButton } from './_components/delete-customer-button';
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from '@/components/ui/pagination';
 
-async function getCustomers() {
-  const customers = await prisma.customer.findMany({
-    orderBy: {
-      name: 'asc',
-    },
-  });
-  return customers;
+interface Customer {
+  id: string;
+  code: string;
+  name: string;
+  contactPerson: string | null;
+  phone: string | null;
+  balance: number;
+  createdAt: string;
 }
 
-export default async function CustomersPage() {
-  const customers = await getCustomers();
+interface PaginationData {
+  total: number;
+  totalPages: number;
+  currentPage: number;
+  limit: number;
+}
+
+export default function CustomersPage() {
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [pagination, setPagination] = useState<PaginationData>({
+    total: 0,
+    totalPages: 1,
+    currentPage: 1,
+    limit: 10,
+  });
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+  const debouncedSearchTerm = useDebounce(searchTerm, 500);
+
+  const fetchCustomers = async (page = 1, search = '') => {
+    setIsLoading(true);
+    try {
+      const query = new URLSearchParams({
+        page: page.toString(),
+        limit: pagination.limit.toString(),
+        ...(search && { search }),
+      }).toString();
+
+      const response = await fetch(`/api/customers?${query}`);
+      const data = await response.json();
+
+      if (response.ok) {
+        setCustomers(data.data);
+        setPagination(data.pagination);
+      }
+    } catch (error) {
+      console.error('Error fetching customers:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchCustomers(1, debouncedSearchTerm);
+  }, [debouncedSearchTerm]);
+
+  const handlePageChange = (page: number) => {
+    if (page >= 1 && page <= pagination.totalPages) {
+      fetchCustomers(page, debouncedSearchTerm);
+    }
+  };
+
+  const handleDelete = (deletedId: string) => {
+    setCustomers(prev => prev.filter(c => c.id !== deletedId));
+
+    const newTotal = pagination.total - 1;
+    const newTotalPages = Math.ceil(newTotal / pagination.limit);
+    const newCurrentPage =
+      customers.length === 1 && pagination.currentPage > 1
+        ? pagination.currentPage - 1
+        : pagination.currentPage;
+
+    setPagination(prev => ({
+      ...prev,
+      total: newTotal,
+      totalPages: newTotalPages,
+      currentPage: newCurrentPage,
+    }));
+
+    if (newCurrentPage !== pagination.currentPage) {
+      fetchCustomers(newCurrentPage, debouncedSearchTerm);
+    }
+  };
+
+  const renderPageNumbers = () => {
+    const pages = [];
+    const maxVisible = 5;
+    let start = Math.max(1, pagination.currentPage - 2);
+    let end = Math.min(pagination.totalPages, start + maxVisible - 1);
+
+    if (pagination.totalPages > maxVisible && end - start < maxVisible - 1) {
+      start = Math.max(1, end - maxVisible + 1);
+    }
+
+    for (let i = start; i <= end; i++) {
+      pages.push(
+        <PaginationItem key={i}>
+          <PaginationLink
+            isActive={i === pagination.currentPage}
+            onClick={() => handlePageChange(i)}
+            className="cursor-pointer"
+          >
+            {i}
+          </PaginationLink>
+        </PaginationItem>
+      );
+    }
+
+    return pages;
+  };
 
   return (
     <div className="container mx-auto py-10">
@@ -33,57 +141,113 @@ export default async function CustomersPage() {
         <h1 className="text-3xl font-bold">Customers</h1>
         <Link href="/customers/new">
           <Button>
-            <PlusCircle className="mr-2 h-4 w-4" /> Add New Customer
+            <PlusCircle className="mr-2 h-4 w-4" />
+            Add New Customer
           </Button>
         </Link>
       </div>
-      <Suspense fallback={<div>Loading customers...</div>}>
-        <CustomerTable customers={customers} />
-      </Suspense>
-    </div>
-  );
-}
 
-function CustomerTable({ customers }: { customers: any[] }) {
-  if (customers.length === 0) {
-    return <p>No customers found. Add a new customer to get started!</p>;
-  }
+      <div className="mb-4">
+        <Input
+          placeholder="Search customers..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="max-w-md"
+        />
+      </div>
 
-  return (
-    <div className="rounded-md border">
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Code</TableHead> {/* Display Code */}
-          <TableHead>Customer Name</TableHead>
-          <TableHead>Contact Person</TableHead>
-          <TableHead>Phone</TableHead>
-          <TableHead>Balance</TableHead>
-          <TableHead className="text-right">Actions</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {customers.map((customer) => (
-          <TableRow key={customer.id}>
-            <TableCell className="font-mono text-sm">{customer.code}</TableCell> {/* Display Code */}
-            <TableCell className="font-medium">{customer.name}</TableCell>
-            <TableCell>{customer.contactPerson || 'N/A'}</TableCell>
-            <TableCell>{customer.phone || 'N/A'}</TableCell>
-            <TableCell>₹{customer.balance.toFixed(2)}</TableCell>
-            <TableCell className="text-right">
-              <div className="flex justify-end gap-2">
-                <Link href={`/customers/${customer.id}/edit`}> {/* Link to edit page */}
-                  <Button variant="outline" size="sm" className="h-8 w-8 p-0">
-                    <Edit className="h-4 w-4" />
-                  </Button>
-                </Link>
-                <DeleteCustomerButton customerId={customer.id} customerName={customer.name} />
+      {isLoading ? (
+        <div className="flex justify-center items-center h-64">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+        </div>
+      ) : customers.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-12">
+          <p className="text-lg text-muted-foreground mb-4">
+            {searchTerm ? 'No customers match your search.' : 'No customers found.'}
+          </p>
+          <Link href="/customers/new">
+            <Button>
+              <PlusCircle className="mr-2 h-4 w-4" /> Add New Customer
+            </Button>
+          </Link>
+        </div>
+      ) : (
+        <>
+          <div className="rounded-md border mb-4">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Code</TableHead>
+                  <TableHead>Customer Name</TableHead>
+                  <TableHead>Contact Person</TableHead>
+                  <TableHead>Phone</TableHead>
+                  <TableHead>Balance</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {customers.map((customer) => (
+                  <TableRow key={customer.id}>
+                    <TableCell className="font-mono text-sm">{customer.code}</TableCell>
+                    <TableCell className="font-medium">{customer.name}</TableCell>
+                    <TableCell>{customer.contactPerson || 'N/A'}</TableCell>
+                    <TableCell>{customer.phone || 'N/A'}</TableCell>
+                    <TableCell>₹{customer.balance.toFixed(2)}</TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <Link href={`/customers/${customer.id}/edit`}>
+                          <Button variant="outline" size="sm" className="h-8 w-8 p-0">
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                        </Link>
+                        <DeleteCustomerButton
+                          customerId={customer.id}
+                          customerName={customer.name}
+                          onDelete={handleDelete}
+                        />
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+
+          {pagination.totalPages > 1 && (
+            <>
+              <Pagination>
+                <PaginationContent>
+                  <PaginationItem>
+                    <button
+                      onClick={() => handlePageChange(pagination.currentPage - 1)}
+                      disabled={pagination.currentPage === 1}
+                    >
+                      <PaginationPrevious />
+                    </button>
+                  </PaginationItem>
+
+                  {renderPageNumbers()}
+
+                  <PaginationItem>
+                    <button
+                      onClick={() => handlePageChange(pagination.currentPage + 1)}
+                      disabled={pagination.currentPage === pagination.totalPages}
+                    >
+                      <PaginationNext />
+                    </button>
+                  </PaginationItem>
+                </PaginationContent>
+              </Pagination>
+
+              <div className="text-sm text-muted-foreground mt-2">
+                Showing {(pagination.currentPage - 1) * pagination.limit + 1} to{' '}
+                {Math.min(pagination.currentPage * pagination.limit, pagination.total)} of{' '}
+                {pagination.total} customers
               </div>
-            </TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+            </>
+          )}
+        </>
+      )}
     </div>
   );
 }

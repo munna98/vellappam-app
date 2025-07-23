@@ -1,31 +1,131 @@
 // src/app/products/page.tsx
-import { Suspense } from 'react';
+'use client';
+import { useState, useEffect } from 'react';
+import Link from 'next/link';
+import { useDebounce } from '@/lib/useDebounce';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 import {
   Table,
   TableBody,
-  TableCaption,
   TableCell,
   TableHead,
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Button } from '@/components/ui/button';
-import { PlusCircle, Edit, Trash2 } from 'lucide-react';
-import Link from 'next/link';
-import prisma from '@/lib/prisma';
-import { DeleteProductButton } from './_components/delete-product-button'; 
+import { PlusCircle, Edit } from 'lucide-react';
+import { DeleteProductButton } from './_components/delete-product-button';
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+  PaginationEllipsis
+} from '@/components/ui/pagination';
 
-async function getProducts() {
-  const products = await prisma.product.findMany({
-    orderBy: {
-      name: 'asc',
-    },
-  });
-  return products;
+interface Product {
+  id: string;
+  code: string;
+  name: string;
+  price: number;
+  unit: string;
+  createdAt: string;
 }
 
-export default async function ProductsPage() {
-  const products = await getProducts();
+interface PaginationData {
+  total: number;
+  totalPages: number;
+  currentPage: number;
+  limit: number;
+}
+
+export default function ProductsPage() {
+  const [products, setProducts] = useState<Product[]>([]);
+  const [pagination, setPagination] = useState<PaginationData>({
+    total: 0,
+    totalPages: 1,
+    currentPage: 1,
+    limit: 10,
+  });
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+  const debouncedSearchTerm = useDebounce(searchTerm, 500);
+
+  const fetchProducts = async (page = 1, search = '') => {
+    setIsLoading(true);
+    try {
+      const query = new URLSearchParams({
+        page: page.toString(),
+        limit: pagination.limit.toString(),
+        ...(search && { search }),
+      }).toString();
+
+      const response = await fetch(`/api/products?${query}`);
+      const data = await response.json();
+
+      if (response.ok) {
+        setProducts(data.data);
+        setPagination(data.pagination);
+      }
+    } catch (error) {
+      console.error('Error fetching products:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchProducts(1, debouncedSearchTerm);
+  }, [debouncedSearchTerm]);
+
+  const handlePageChange = (page: number) => {
+    if (page >= 1 && page <= pagination.totalPages) {
+      fetchProducts(page, debouncedSearchTerm);
+    }
+  };
+
+  const handleDelete = (deletedId: string) => {
+    setProducts(prev => prev.filter(product => product.id !== deletedId));
+    
+    setPagination(prev => ({
+      ...prev,
+      total: prev.total - 1,
+      totalPages: Math.ceil((prev.total - 1) / prev.limit),
+    }));
+
+    if (products.length === 1 && pagination.currentPage > 1) {
+      handlePageChange(pagination.currentPage - 1);
+    }
+  };
+
+  const renderPageNumbers = () => {
+    const pages = [];
+    const maxVisible = 5;
+    let start = Math.max(1, pagination.currentPage - 2);
+    let end = Math.min(pagination.totalPages, start + maxVisible - 1);
+
+    if (pagination.totalPages > maxVisible && end - start < maxVisible - 1) {
+      start = Math.max(1, end - maxVisible + 1);
+    }
+
+    for (let i = start; i <= end; i++) {
+      pages.push(
+        <PaginationItem key={i}>
+          <PaginationLink
+            isActive={i === pagination.currentPage}
+            onClick={() => handlePageChange(i)}
+            className="cursor-pointer"
+          >
+            {i}
+          </PaginationLink>
+        </PaginationItem>
+      );
+    }
+
+    return pages;
+  };
 
   return (
     <div className="container mx-auto py-10">
@@ -37,51 +137,108 @@ export default async function ProductsPage() {
           </Button>
         </Link>
       </div>
-      <Suspense fallback={<div>Loading products...</div>}>
-        <ProductTable products={products} />
-      </Suspense>
-    </div>
-  );
-}
 
-function ProductTable({ products }: { products: any[] }) {
-  if (products.length === 0) {
-    return <p>No products found. Add a new product to get started!</p>;
-  }
+      <div className="mb-4">
+        <Input
+          placeholder="Search products..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="max-w-md"
+        />
+      </div>
 
-  return (
-    <div className="rounded-md border"> 
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Code</TableHead>
-          <TableHead>Product Name</TableHead>
-          <TableHead className="text-right">Price</TableHead>
-          <TableHead>Unit</TableHead>
-          <TableHead className="text-right">Actions</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {products.map((product) => (
-          <TableRow key={product.id}>
-            <TableCell className="font-mono text-sm">{product.code}</TableCell>
-            <TableCell className="font-medium">{product.name}</TableCell>
-            <TableCell className="text-right">₹{product.price.toFixed(2)}</TableCell>
-            <TableCell>{product.unit}</TableCell>
-            <TableCell className="text-right">
-              <div className="flex justify-end gap-2">
-                <Link href={`/products/${product.id}/edit`}>
-                  <Button variant="outline" size="sm" className="h-8 w-8 p-0">
-                    <Edit className="h-4 w-4" />
-                  </Button>
-                </Link>
-                <DeleteProductButton productId={product.id} productName={product.name} />
+      {isLoading ? (
+        <div className="flex justify-center items-center h-64">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+        </div>
+      ) : products.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-12">
+          <p className="text-lg text-muted-foreground mb-4">
+            {searchTerm ? 'No products match your search.' : 'No products found.'}
+          </p>
+          <Link href="/products/new">
+            <Button>
+              <PlusCircle className="mr-2 h-4 w-4" /> Add New Product
+            </Button>
+          </Link>
+        </div>
+      ) : (
+        <>
+          <div className="rounded-md border mb-4">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Code</TableHead>
+                  <TableHead>Product Name</TableHead>
+                  <TableHead className="text-right">Price</TableHead>
+                  <TableHead>Unit</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {products.map((product) => (
+                  <TableRow key={product.id}>
+                    <TableCell className="font-mono text-sm">{product.code}</TableCell>
+                    <TableCell className="font-medium">{product.name}</TableCell>
+                    <TableCell className="text-right">₹{product.price.toFixed(2)}</TableCell>
+                    <TableCell>{product.unit}</TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <Link href={`/products/${product.id}/edit`}>
+                          <Button variant="outline" size="sm" className="h-8 w-8 p-0">
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                        </Link>
+                        <DeleteProductButton
+                          productId={product.id}
+                          productName={product.name}
+                          onDelete={handleDelete}
+                        />
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+
+          {pagination.totalPages > 1 && (
+            <>
+              <Pagination>
+                <PaginationContent>
+                  <PaginationItem>
+                    <button
+                      onClick={() => handlePageChange(pagination.currentPage - 1)}
+                      disabled={pagination.currentPage === 1}
+                      aria-label="Previous page"
+                    >
+                      <PaginationPrevious />
+                    </button>
+                  </PaginationItem>
+
+                  {renderPageNumbers()}
+
+                  <PaginationItem>
+                    <button
+                      onClick={() => handlePageChange(pagination.currentPage + 1)}
+                      disabled={pagination.currentPage === pagination.totalPages}
+                      aria-label="Next page"
+                    >
+                      <PaginationNext />
+                    </button>
+                  </PaginationItem>
+                </PaginationContent>
+              </Pagination>
+
+              <div className="text-sm text-muted-foreground mt-2">
+                Showing {(pagination.currentPage - 1) * pagination.limit + 1} to{' '}
+                {Math.min(pagination.currentPage * pagination.limit, pagination.total)} of{' '}
+                {pagination.total} products
               </div>
-            </TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+            </>
+          )}
+        </>
+      )}
     </div>
   );
 }

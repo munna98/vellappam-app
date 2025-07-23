@@ -1,9 +1,7 @@
-
 // src/app/customers/_components/delete-customer-button.tsx
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -22,10 +20,14 @@ import { toast } from 'sonner';
 interface DeleteCustomerButtonProps {
   customerId: string;
   customerName: string;
+  onDelete?: (deletedId: string) => void;
 }
 
-export function DeleteCustomerButton({ customerId, customerName }: DeleteCustomerButtonProps) {
-  const router = useRouter();
+export function DeleteCustomerButton({ 
+  customerId, 
+  customerName,
+  onDelete 
+}: DeleteCustomerButtonProps) {
   const [isLoading, setIsLoading] = useState(false);
 
   const handleDelete = async () => {
@@ -41,7 +43,9 @@ export function DeleteCustomerButton({ customerId, customerName }: DeleteCustome
       }
 
       toast.success(`Customer "${customerName}" deleted successfully!`);
-      router.refresh(); // Revalidate data on the customers page
+      if (onDelete) {
+        onDelete(customerId);
+      }
     } catch (error: any) {
       console.error('Error deleting customer:', error);
       toast.error(error.message || 'Error deleting customer.');

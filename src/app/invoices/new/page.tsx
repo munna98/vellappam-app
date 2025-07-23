@@ -41,15 +41,34 @@ const generateNextInvoiceNumberForDisplay = (lastInvoiceNumber: string | null): 
 
 // Define types for data fetched from API for print
 type CompanyInfo = {
-  id: string | null;
+  id: string;
   businessName: string;
   address1: string | null;
+  address2: string | null;
+  city: string | null;
+  state: string | null;
+  zipCode: string | null;
+  country: string | null;
+  phone: string | null;
   mobile: string | null;
-  defaultPrintOnSave: boolean | null;
+  email: string | null;
+  website: string | null;
+  logoUrl: string | null;
+  gstin: string | null;
+  bankName: string | null;
+  bankAccountNo: string | null;
+  ifscCode: string | null;
+  upiId: string | null;
+  defaultPrintOnSave: boolean;
+  createdAt: Date;
+  updatedAt: Date;
 };
 
 type InvoiceItemWithProduct = {
   id: string;
+  createdAt: Date;
+  updatedAt: Date;
+  invoiceId: string;
   productId: string;
   quantity: number;
   unitPrice: number;
@@ -68,7 +87,7 @@ export default function CreateInvoicePage() {
   const {
     selectedCustomer,
     invoiceItems,
-    totalAmount, // This is the subtotal from the store
+    totalAmount,
     setCustomer,
     addItem,
     updateItemDetails,
@@ -92,7 +111,7 @@ export default function CreateInvoicePage() {
   const [shouldPrint, setShouldPrint] = useState<boolean>(true);
 
   // --- Fetch Customers, Products, Last Invoice, and Company Info on component mount ---
-  useEffect(() => {
+useEffect(() => {
     const fetchData = async () => {
       try {
         const [customersRes, productsRes, lastInvoiceRes, companyInfoRes] = await Promise.all([
@@ -106,23 +125,27 @@ export default function CreateInvoicePage() {
           throw new Error('Failed to fetch initial data');
         }
 
-        const customersData: Customer[] = await customersRes.json();
-        const productsData: Product[] = await productsRes.json();
+        const customersResponse = await customersRes.json();
+        const productsResponse = await productsRes.json();
         const lastInvoices = await lastInvoiceRes.json();
         const companyInfoData: CompanyInfo = await companyInfoRes.json();
 
+        // Ensure .data is an array, default to empty array if not
+        setCustomers(Array.isArray(customersResponse.data) ? customersResponse.data : []);
+        setProducts(Array.isArray(productsResponse.data) ? productsResponse.data : []);
 
-        setCustomers(customersData);
-        setProducts(productsData);
         setCompanyInfo(companyInfoData);
-        setShouldPrint(companyInfoData.defaultPrintOnSave ?? true);
+        setShouldPrint(companyInfoData.defaultPrintOnSave);
 
-        const lastInvNumber = lastInvoices.invoices.length > 0 ? lastInvoices.invoices[0].invoiceNumber : null;
+        const lastInvNumber = lastInvoices.data.length > 0 ? lastInvoices.data[0].invoiceNumber : null;
         setInvoiceNumberDisplay(generateNextInvoiceNumberForDisplay(lastInvNumber));
       } catch (error) {
         console.error('Error fetching data:', error);
         toast.error('Failed to load customers, products, or company info.');
         setInvoiceNumberDisplay('INV1');
+        // Also reset to empty arrays on error to prevent further issues
+        setCustomers([]);
+        setProducts([]);
       }
     };
 
@@ -133,7 +156,6 @@ export default function CreateInvoicePage() {
       resetForm();
     };
   }, [resetForm]);
-
   // Update unitPriceToAdd when a product is selected in the "add product" row
   useEffect(() => {
     if (selectedProductToAdd) {
@@ -258,7 +280,7 @@ export default function CreateInvoicePage() {
 
       const lastInvoiceRes = await fetch('/api/invoices?orderBy=createdAt&direction=desc&limit=1');
       const lastInvoices = await lastInvoiceRes.json();
-      const lastInvNumber = lastInvoices.invoices.length > 0 ? lastInvoices.invoices[0].invoiceNumber : null;
+      const lastInvNumber = lastInvoices.data.length > 0 ? lastInvoices.data[0].invoiceNumber : null;
       setInvoiceNumberDisplay(generateNextInvoiceNumberForDisplay(lastInvNumber));
 
       router.push('/invoices');
@@ -550,4 +572,4 @@ export default function CreateInvoicePage() {
       </Card>
     </div>
   );
-} 
+}

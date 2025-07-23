@@ -5,22 +5,41 @@ import prisma from '@/lib/prisma';
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const orderBy = searchParams.get('orderBy') || 'name';
-    const direction = searchParams.get('direction') || 'asc';
-    const limit = searchParams.get('limit');
+    const search = searchParams.get('search') || '';
+    const page = parseInt(searchParams.get('page') || '1', 10);
+    const limit = parseInt(searchParams.get('limit') || '10', 10);
+    const skip = (page - 1) * limit;
 
-    const findManyArgs: any = {
-      orderBy: {
-        [orderBy]: direction,
-      },
-    };
-
-    if (limit) {
-      findManyArgs.take = parseInt(limit, 10);
+    const where: any = {};
+    if (search) {
+      where.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { code: { contains: search, mode: 'insensitive' } },
+        { unit: { contains: search, mode: 'insensitive' } },
+      ];
     }
 
-    const products = await prisma.product.findMany(findManyArgs);
-    return NextResponse.json(products);
+    const [products, totalCount] = await Promise.all([
+      prisma.product.findMany({
+        where,
+        orderBy: {
+          createdAt: 'desc',
+        },
+        take: limit,
+        skip,
+      }),
+      prisma.product.count({ where }),
+    ]);
+
+    return NextResponse.json({
+      data: products,
+      pagination: {
+        total: totalCount,
+        totalPages: Math.ceil(totalCount / limit),
+        currentPage: page,
+        limit,
+      },
+    });
   } catch (error) {
     console.error('Error fetching products:', error);
     return NextResponse.json({ error: 'Failed to fetch products' }, { status: 500 });
@@ -36,7 +55,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'All fields are required' }, { status: 400 });
     }
 
-    // Validate code format
     if (!/^\d+$/.test(code) || parseInt(code) <= 0) {
       return NextResponse.json({ error: 'Product code must be a positive number' }, { status: 400 });
     }

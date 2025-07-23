@@ -2,7 +2,6 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -21,10 +20,14 @@ import { toast } from 'sonner';
 interface DeleteProductButtonProps {
   productId: string;
   productName: string;
+  onDelete?: (deletedId: string) => void;
 }
 
-export function DeleteProductButton({ productId, productName }: DeleteProductButtonProps) {
-  const router = useRouter();
+export function DeleteProductButton({ 
+  productId, 
+  productName,
+  onDelete 
+}: DeleteProductButtonProps) {
   const [isLoading, setIsLoading] = useState(false);
 
   const handleDelete = async () => {
@@ -40,7 +43,9 @@ export function DeleteProductButton({ productId, productName }: DeleteProductBut
       }
 
       toast.success(`Product "${productName}" deleted successfully!`);
-      router.refresh(); // Revalidate data on the products page
+      if (onDelete) {
+        onDelete(productId);
+      }
     } catch (error: any) {
       console.error('Error deleting product:', error);
       toast.error(error.message || 'Error deleting product.');

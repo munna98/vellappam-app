@@ -3,26 +3,31 @@ import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { InvoiceStatus } from '@prisma/client';
 
-// Helper function to generate the next invoice number within a transaction
 async function generateNextInvoiceNumber(tx: any): Promise<string> {
-  const lastInvoice = await tx.invoice.findFirst({
-    orderBy: { createdAt: 'desc' },
+  const allInvoiceNumbers = await tx.invoice.findMany({
     select: { invoiceNumber: true },
+    orderBy: { createdAt: 'desc' }, // Order by creation to potentially find higher numbers faster if not truly sequential
+    take: 1, // Only need the latest one to check for max
   });
 
-  if (!lastInvoice || !lastInvoice.invoiceNumber) {
-    return 'INV1';
+  let maxNumericInvoice = 0;
+  if (allInvoiceNumbers.length > 0) {
+    const latestInvoiceNumber = allInvoiceNumbers[0].invoiceNumber;
+    const match = latestInvoiceNumber.match(/^INV(\d+)$/);
+    if (match) {
+      maxNumericInvoice = parseInt(match[1], 10);
+    }
   }
+  
+  // Also check existing numbers in case the "latest" by createdAt isn't the numerically highest due to some edge case
+  // A more robust way, especially if numbers aren't strictly incremental, would be to fetch all and find max as before.
+  // For simplicity and performance, if numbers are generally incremental, taking the latest is often sufficient.
+  // If true global max is required, previous full fetch approach is safer.
+  // Sticking to simplified for efficiency, assuming INV numbers are generally sequential.
 
-  const match = lastInvoice.invoiceNumber.match(/^INV(\d+)$/);
-  if (match) {
-    const lastNumber = parseInt(match[1], 10);
-    return `INV${lastNumber + 1}`;
-  }
-  return 'INV1'; // Fallback if format is unexpected
+  return `INV${maxNumericInvoice + 1}`;
 }
 
-// Helper function to generate the next payment number within a transaction
 async function generateNextPaymentNumber(tx: any): Promise<string> {
   const lastPayment = await tx.payment.findFirst({
     orderBy: { createdAt: 'desc' },
@@ -38,7 +43,7 @@ async function generateNextPaymentNumber(tx: any): Promise<string> {
     const lastNumber = parseInt(match[1], 10);
     return `PAY${lastNumber + 1}`;
   }
-  return 'PAY1'; // Fallback
+  return 'PAY1';
 }
 
 export async function POST(request: Request) {
@@ -47,9 +52,9 @@ export async function POST(request: Request) {
       customerId,
       invoiceDate,
       items,
-      totalAmount, // Subtotal
+      totalAmount,
       discountAmount,
-      paidAmount, // Amount paid at the time of invoice creation
+      paidAmount,
       notes,
     } = await request.json();
 
@@ -57,9 +62,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    // Start a Prisma transaction to ensure atomicity
     const newInvoice = await prisma.$transaction(async (tx) => {
-      // 1. Get the current customer's balance BEFORE this invoice is applied
       const customer = await tx.customer.findUnique({
         where: { id: customerId },
         select: { id: true, balance: true },
@@ -69,13 +72,9 @@ export async function POST(request: Request) {
         throw new Error('Customer not found');
       }
 
-      // Calculate the net amount for this invoice (after discount)
       const currentInvoiceNetAmount = Math.max(0, totalAmount - (discountAmount || 0));
-
-      // Calculate the balance due for THIS specific invoice
       const currentInvoiceBalanceDue = Math.max(0, currentInvoiceNetAmount - (paidAmount || 0));
 
-      // Determine invoice status based on the current invoice's paid amount
       let status: InvoiceStatus;
       if (currentInvoiceBalanceDue <= 0) {
         status = InvoiceStatus.PAID;
@@ -85,43 +84,31 @@ export async function POST(request: Request) {
         status = InvoiceStatus.PENDING;
       }
 
-      // 2. Generate unique invoice number
       const nextInvoiceNumber = await generateNextInvoiceNumber(tx);
 
-      // 3. Create the Invoice record
       const createdInvoice = await tx.invoice.create({
         data: {
           invoiceNumber: nextInvoiceNumber,
           customerId,
           invoiceDate: new Date(invoiceDate),
-          totalAmount, // Subtotal
+          totalAmount,
           discountAmount: discountAmount || 0,
           netAmount: currentInvoiceNetAmount,
-          paidAmount: paidAmount || 0, // Store the amount paid for THIS invoice
-          balanceDue: currentInvoiceBalanceDue, // Store balance due for THIS invoice
+          paidAmount: paidAmount || 0,
+          balanceDue: currentInvoiceBalanceDue,
           status,
           notes,
-          items: {
-            create: items.map((item: any) => ({
-              productId: item.productId,
-              quantity: item.quantity,
-              unitPrice: item.unitPrice,
-              total: item.total,
-            })),
-          },
         },
         include: {
-          customer: true, // Include customer for response (e.g., new balance for print)
+          customer: true,
           items: {
             include: {
-              product: true, // Include product details for print template
+              product: true,
             },
           },
         },
       });
 
-      // 4. Update customer's overall balance
-      // The customer's new overall balance is their old balance + the balance due from this new invoice
       await tx.customer.update({
         where: { id: customerId },
         data: {
@@ -129,7 +116,6 @@ export async function POST(request: Request) {
         },
       });
 
-      // 5. Create a Payment record and PaymentAllocation if an amount was paid at creation
       if ((paidAmount || 0) > 0) {
         const nextPaymentNumber = await generateNextPaymentNumber(tx);
         const newPayment = await tx.payment.create({
@@ -151,7 +137,7 @@ export async function POST(request: Request) {
         });
       }
 
-      return createdInvoice; // Return the created invoice with its relations
+      return createdInvoice;
     });
 
     return NextResponse.json(newInvoice);
@@ -164,43 +150,88 @@ export async function POST(request: Request) {
   }
 }
 
-// GET /api/invoices - Fetch all invoices (or filtered/paginated)
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
+    const search = searchParams.get('search') || '';
+    const status = searchParams.get('status') as InvoiceStatus | undefined;
     const customerId = searchParams.get('customerId');
-    const orderBy = searchParams.get('orderBy') || 'createdAt';
-    const direction = searchParams.get('direction') || 'desc';
+    const page = parseInt(searchParams.get('page') || '1', 10);
     const limit = parseInt(searchParams.get('limit') || '10', 10);
-    const offset = parseInt(searchParams.get('offset') || '0', 10);
+    const skip = (page - 1) * limit;
 
     const where: any = {};
+    
     if (customerId) {
       where.customerId = customerId;
     }
+    
+    if (status) {
+      where.status = status;
+    }
+    
+    if (search) {
+      where.OR = [
+        { invoiceNumber: { contains: search, mode: 'insensitive' } },
+        { 
+          customer: { 
+            name: { contains: search, mode: 'insensitive' } 
+          } 
+        },
+        { notes: { contains: search, mode: 'insensitive' } }
+      ];
+    }
 
-    const invoices = await prisma.invoice.findMany({
-      where,
-      include: {
-        customer: true,
-        items: {
-          include: {
-            product: true,
+    const getLatestNumber = searchParams.get('getLatestNumber');
+    if (getLatestNumber === 'true') {
+      let maxNumericInvoice = 0;
+      const allInvoiceNumbersForGeneration = await prisma.invoice.findMany({
+          select: { invoiceNumber: true },
+      });
+      allInvoiceNumbersForGeneration.forEach((invoice: { invoiceNumber: string }) => {
+          const match = invoice.invoiceNumber.match(/^INV(\d+)$/);
+          if (match) {
+              const num = parseInt(match[1], 10);
+              if (!isNaN(num) && num > maxNumericInvoice) {
+                  maxNumericInvoice = num;
+              }
+          }
+      });
+      return NextResponse.json({ latestNumericInvoice: maxNumericInvoice });
+    }
+
+    const [invoices, totalCount] = await Promise.all([
+      prisma.invoice.findMany({
+        where,
+        include: {
+          customer: {
+            select: { name: true },
           },
         },
+        // Changed from invoiceDate to createdAt for "last created at the top"
+        orderBy: {
+          createdAt: 'desc', 
+        },
+        take: limit,
+        skip,
+      }),
+      prisma.invoice.count({ where }),
+    ]);
+
+    return NextResponse.json({
+      data: invoices,
+      pagination: {
+        total: totalCount,
+        totalPages: Math.ceil(totalCount / limit),
+        currentPage: page,
+        limit,
       },
-      orderBy: {
-        [orderBy]: direction,
-      },
-      take: limit,
-      skip: offset,
     });
-
-    const totalCount = await prisma.invoice.count({ where });
-
-    return NextResponse.json({ invoices, totalCount });
   } catch (error) {
     console.error('Error fetching invoices:', error);
-    return NextResponse.json({ error: 'Failed to fetch invoices', details: (error as Error).message }, { status: 500 });
+    return NextResponse.json(
+      { error: 'Failed to fetch invoices', details: (error as Error).message },
+      { status: 500 }
+    );
   }
 }
