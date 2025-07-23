@@ -21,9 +21,10 @@ import { toast } from 'sonner';
 interface DeletePaymentButtonProps {
   paymentId: string;
   paymentNumber: string;
+  onDelete?: () => void; // ⭐ Added optional onDelete prop
 }
 
-export function DeletePaymentButton({ paymentId, paymentNumber }: DeletePaymentButtonProps) {
+export function DeletePaymentButton({ paymentId, paymentNumber, onDelete }: DeletePaymentButtonProps) {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
 
@@ -40,7 +41,11 @@ export function DeletePaymentButton({ paymentId, paymentNumber }: DeletePaymentB
       }
 
       toast.success(`Payment "${paymentNumber}" deleted successfully!`);
-      router.refresh(); // Revalidate data on the payments page
+      if (onDelete) {
+        onDelete(); // ⭐ Call onDelete callback
+      } else {
+        router.refresh(); // Fallback to router.refresh if no specific onDelete handler
+      }
     } catch (error: any) {
       console.error('Error deleting payment:', error);
       toast.error(error.message || 'Error deleting payment.');

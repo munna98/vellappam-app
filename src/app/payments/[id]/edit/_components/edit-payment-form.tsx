@@ -19,7 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { FullPayment, AllocatedInvoiceDisplay } from '@/types';
+import { FullPayment, AllocatedInvoiceDisplay } from '@/types'; // Assuming FullPayment and AllocatedInvoiceDisplay are correctly defined in types.ts
 
 interface EditPaymentFormProps {
   payment: FullPayment;
@@ -31,7 +31,7 @@ export function EditPaymentForm({ payment, initialAllocations }: EditPaymentForm
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
-  const [paymentNumber, setPaymentNumber] = useState<string>(payment.paymentNumber); // ⭐ This will now correctly be 'PAYX'
+  const [paymentNumber, setPaymentNumber] = useState<string>(payment.paymentNumber);
   const [paymentDate, setPaymentDate] = useState<string>(new Date(payment.paymentDate).toISOString().split('T')[0]);
   const [amount, setAmount] = useState<number>(payment.amount);
   const [notes, setNotes] = useState(payment.notes || '');
@@ -45,17 +45,21 @@ export function EditPaymentForm({ payment, initialAllocations }: EditPaymentForm
         if (!customersRes.ok) {
           throw new Error('Failed to fetch customers.');
         }
-        const customersData: Customer[] = await customersRes.json();
+        const customersResponse = await customersRes.json();
+        const customersData = Array.isArray(customersResponse.data) ? customersResponse.data : [];
+        
         setCustomers(customersData);
-        setSelectedCustomer(customersData.find(c => c.id === payment.customerId) || null);
+        // Find and set the initially selected customer from the fetched list
+        // ⭐ FIX: Explicitly type 'c' as Customer
+        setSelectedCustomer(customersData.find((c: Customer) => c.id === payment.customerId) || null);
       } catch (error) {
         console.error('Error fetching customers:', error);
         toast.error('Failed to load customers.');
+        setCustomers([]); 
       }
     };
     fetchData();
-  }, [payment.customerId]);
-
+  }, [payment.customerId]); // Dependency: payment.customerId ensures refetch if customer changes
 
   const handleSavePayment = async () => {
     if (!selectedCustomer) {
@@ -104,9 +108,9 @@ export function EditPaymentForm({ payment, initialAllocations }: EditPaymentForm
                 <Label htmlFor="paymentNumber">Payment Number</Label>
                 <Input
                   id="paymentNumber"
-                  value={paymentNumber} // ⭐ Displays the actual PAYX number
+                  value={paymentNumber}
                   className="w-[180px]"
-                  disabled // ⭐ Keep disabled as it's not editable
+                  disabled
                 />
               </div>
             </div>
@@ -125,7 +129,7 @@ export function EditPaymentForm({ payment, initialAllocations }: EditPaymentForm
               <div className="space-y-2">
                 <Label htmlFor="customer">Select Customer</Label>
                 <Combobox
-                  items={customers}
+                  items={customers} // Now 'customers' will always be an array
                   value={selectedCustomer?.id || null}
                   onSelect={(id) =>
                     setSelectedCustomer(customers.find((c) => c.id === id) || null)

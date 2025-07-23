@@ -6,8 +6,8 @@ import { InvoiceStatus } from '@prisma/client';
 async function generateNextInvoiceNumber(tx: any): Promise<string> {
   const allInvoiceNumbers = await tx.invoice.findMany({
     select: { invoiceNumber: true },
-    orderBy: { createdAt: 'desc' }, // Order by creation to potentially find higher numbers faster if not truly sequential
-    take: 1, // Only need the latest one to check for max
+    orderBy: { createdAt: 'desc' },
+    take: 1,
   });
 
   let maxNumericInvoice = 0;
@@ -18,12 +18,6 @@ async function generateNextInvoiceNumber(tx: any): Promise<string> {
       maxNumericInvoice = parseInt(match[1], 10);
     }
   }
-  
-  // Also check existing numbers in case the "latest" by createdAt isn't the numerically highest due to some edge case
-  // A more robust way, especially if numbers aren't strictly incremental, would be to fetch all and find max as before.
-  // For simplicity and performance, if numbers are generally incremental, taking the latest is often sufficient.
-  // If true global max is required, previous full fetch approach is safer.
-  // Sticking to simplified for efficiency, assuming INV numbers are generally sequential.
 
   return `INV${maxNumericInvoice + 1}`;
 }
@@ -51,15 +45,16 @@ export async function POST(request: Request) {
     const {
       customerId,
       invoiceDate,
-      items,
+      items, // This array contains the product details from the frontend
       totalAmount,
       discountAmount,
       paidAmount,
       notes,
     } = await request.json();
 
+    // Basic validation
     if (!customerId || !invoiceDate || !items || items.length === 0) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+      return NextResponse.json({ error: 'Missing required fields or no items provided' }, { status: 400 });
     }
 
     const newInvoice = await prisma.$transaction(async (tx) => {
@@ -86,12 +81,13 @@ export async function POST(request: Request) {
 
       const nextInvoiceNumber = await generateNextInvoiceNumber(tx);
 
+      // 1. Create the Invoice
       const createdInvoice = await tx.invoice.create({
         data: {
           invoiceNumber: nextInvoiceNumber,
           customerId,
           invoiceDate: new Date(invoiceDate),
-          totalAmount,
+          totalAmount, // Subtotal
           discountAmount: discountAmount || 0,
           netAmount: currentInvoiceNetAmount,
           paidAmount: paidAmount || 0,
@@ -99,6 +95,9 @@ export async function POST(request: Request) {
           status,
           notes,
         },
+        // We still include customer and items here, but items will only be populated
+        // if they are linked AFTER this creation step.
+        // The items created below will then be included in the final `createdInvoice` returned.
         include: {
           customer: true,
           items: {
@@ -109,6 +108,34 @@ export async function POST(request: Request) {
         },
       });
 
+      // ⭐ New: 2. Create Invoice Items and link them to the new invoice
+      const invoiceItemsToCreate = items.map((item: any) => ({
+        invoiceId: createdInvoice.id, // Link to the newly created invoice
+        productId: item.productId,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        total: item.total,
+      }));
+
+      await tx.invoiceItem.createMany({
+        data: invoiceItemsToCreate,
+      });
+
+      // Re-fetch the created invoice with its now associated items to return a complete object
+      const fullCreatedInvoice = await tx.invoice.findUnique({
+          where: { id: createdInvoice.id },
+          include: {
+              customer: true,
+              items: {
+                  include: {
+                      product: true,
+                  },
+              },
+          },
+      });
+
+
+      // 3. Update Customer Balance
       await tx.customer.update({
         where: { id: customerId },
         data: {
@@ -116,6 +143,7 @@ export async function POST(request: Request) {
         },
       });
 
+      // 4. Handle Payment and Allocation (if paidAmount > 0)
       if ((paidAmount || 0) > 0) {
         const nextPaymentNumber = await generateNextPaymentNumber(tx);
         const newPayment = await tx.payment.create({
@@ -137,7 +165,8 @@ export async function POST(request: Request) {
         });
       }
 
-      return createdInvoice;
+      // Return the complete invoice object with its items
+      return fullCreatedInvoice;
     });
 
     return NextResponse.json(newInvoice);
@@ -149,6 +178,8 @@ export async function POST(request: Request) {
     );
   }
 }
+
+// ... (Your GET function remains unchanged)
 
 export async function GET(request: Request) {
   try {

@@ -119,7 +119,7 @@ useEffect(() => {
           fetch('/api/products'),
           fetch('/api/invoices?orderBy=createdAt&direction=desc&limit=1'),
           fetch('/api/company-info'),
-        ]);
+        ]); 
 
         if (!customersRes.ok || !productsRes.ok || !lastInvoiceRes.ok || !companyInfoRes.ok) {
           throw new Error('Failed to fetch initial data');

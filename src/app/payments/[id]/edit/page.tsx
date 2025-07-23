@@ -12,7 +12,7 @@ interface FullPayment extends Payment {
 
 interface EditPaymentPageProps {
   params: {
-    id: string;
+    id: string; 
   };
 }
 

@@ -2,7 +2,8 @@
 import { Suspense } from 'react';
 import prisma from '@/lib/prisma';
 import { EditInvoiceForm } from './_components/edit-invoice-form';
-import { FullInvoice } from '@/types'; // Import FullInvoice
+import { Prisma } from '@prisma/client';
+import { FullInvoice } from '@/types';
 
 interface EditInvoicePageProps {
   params: {
@@ -10,33 +11,60 @@ interface EditInvoicePageProps {
   };
 }
 
-async function getInvoice(id: string): Promise<FullInvoice | null> {
-  return prisma.invoice.findUnique({
-    where: { id },
-    include: {
-      customer: true,
-      items: {
-        include: {
-          product: true,
-        },
+const fullInvoiceWithRelations = Prisma.validator<Prisma.InvoiceDefaultArgs>()({
+  include: {
+    customer: true,
+    items: {
+      include: {
+        product: true,
       },
     },
-  }) as FullInvoice | null; // Cast to FullInvoice type
+  },
+});
+
+type PrismaFullInvoice = Prisma.InvoiceGetPayload<typeof fullInvoiceWithRelations>;
+
+async function getInvoice(id: string): Promise<PrismaFullInvoice | null> {
+  try {
+    const invoice = await prisma.invoice.findUnique({
+      where: { id },
+      include: {
+        customer: true,
+        items: {
+          include: {
+            product: true,
+          },
+        },
+      },
+    });
+    // ⭐ DEBUG: Log the fetched invoice and its items
+    console.log('Server: Fetched Invoice (before passing to client):', invoice);
+    console.log('Server: Fetched Invoice Items (before passing to client):', invoice?.items);
+
+    return invoice as FullInvoice;
+  } catch (error) {
+    console.error(`Error fetching invoice ${id} from database:`, error);
+    return null;
+  }
 }
 
 export default async function EditInvoicePage({ params }: EditInvoicePageProps) {
   const invoice = await getInvoice(params.id);
 
   if (!invoice) {
+    // ... (rest of your invoice not found logic)
     return (
       <div className="container mx-auto py-10 text-center">
         <h1 className="text-3xl font-bold mb-4">Invoice Not Found</h1>
-        <p className="text-muted-foreground">The invoice you are trying to edit does not exist.</p>
+        <p className="text-muted-foreground">The invoice you are trying to edit does not exist or an error occurred.</p>
       </div>
     );
   }
 
-  // Pass the invoice data, which now includes discountAmount and netAmount
+  // ⭐ DEBUG: Log the invoice just before rendering the client component
+  console.log('Server: Invoice passed to EditInvoiceForm:', invoice);
+
+
   return (
     <div className="container mx-auto py-10 max-w-6xl">
       <h1 className="text-3xl font-bold mb-6">Edit Invoice: {invoice.invoiceNumber}</h1>

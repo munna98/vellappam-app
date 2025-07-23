@@ -1,13 +1,13 @@
-// src/components/ui/combobox.tsx
 'use client';
 import { useState } from 'react';
 import { Check, ChevronsUpDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from './button';
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from './command';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from './command';
 import { Popover, PopoverContent, PopoverTrigger } from './popover';
 
 interface ComboboxProps<T> {
+  id?: string;
   items: T[];
   value: string | null;
   onSelect: (value: string) => void;
@@ -20,6 +20,7 @@ interface ComboboxProps<T> {
 }
 
 export function Combobox<T extends { [key: string]: any }>({
+  id,
   items,
   value,
   onSelect,
@@ -31,9 +32,9 @@ export function Combobox<T extends { [key: string]: any }>({
   formatItemLabel,
 }: ComboboxProps<T>) {
   const [open, setOpen] = useState(false);
-
+  
   const selectedItemDisplay = value
-    ? items.find((item) => item[valueKey] === value)
+    ? items.find((item) => String(item[valueKey]) === value)
     : null;
 
   return (
@@ -44,6 +45,7 @@ export function Combobox<T extends { [key: string]: any }>({
           role="combobox"
           aria-expanded={open}
           className="w-full justify-between"
+          id={id ? `${id}-trigger` : undefined}
         >
           {selectedItemDisplay
             ? (formatItemLabel ? formatItemLabel(selectedItemDisplay) : String(selectedItemDisplay[displayKey]))
@@ -52,30 +54,46 @@ export function Combobox<T extends { [key: string]: any }>({
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0">
-        {/* The <Command> component is responsible for keyboard navigation */}
         <Command>
-          <CommandInput placeholder={searchPlaceholder} />
-          <CommandEmpty>{emptyMessage}</CommandEmpty>
-          <CommandGroup>
-            {items.map((item) => (
-              <CommandItem
-                key={String(item[valueKey])}
-                value={String(item[displayKey])} // This 'value' is critical for keyboard nav
-                onSelect={() => {
-                  onSelect(String(item[valueKey]));
-                  setOpen(false);
-                }}
-              >
-                <Check
-                  className={cn(
-                    'mr-2 h-4 w-4',
-                    value === item[valueKey] ? 'opacity-100' : 'opacity-0'
-                  )}
-                />
-                {formatItemLabel ? formatItemLabel(item) : String(item[displayKey])}
-              </CommandItem>
-            ))}
-          </CommandGroup>
+          <CommandInput placeholder={searchPlaceholder} id={id} />
+          <CommandList>
+            <CommandEmpty>{emptyMessage}</CommandEmpty>
+            <CommandGroup>
+              {items.map((item, index) => {
+                const itemValue = String(item[valueKey]);
+                const itemDisplay = formatItemLabel ? formatItemLabel(item) : String(item[displayKey]);
+                
+                return (
+                  <CommandItem
+                    key={itemValue}
+                    // Use the display text for search functionality
+                    value={itemDisplay}
+                    onSelect={(currentValue) => {
+                      // Find the item by matching the display text
+                      const selectedItem = items.find(item => {
+                        const display = formatItemLabel ? formatItemLabel(item) : String(item[displayKey]);
+                        return display.toLowerCase() === currentValue.toLowerCase();
+                      });
+                      
+                      if (selectedItem) {
+                        const selectedValue = String(selectedItem[valueKey]);
+                        onSelect(selectedValue === value ? "" : selectedValue);
+                      }
+                      setOpen(false);
+                    }}
+                  >
+                    {itemDisplay}
+                    <Check
+                      className={cn(
+                        'ml-auto h-4 w-4',
+                        value === itemValue ? 'opacity-100' : 'opacity-0'
+                      )}
+                    />
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+          </CommandList>
         </Command>
       </PopoverContent>
     </Popover>

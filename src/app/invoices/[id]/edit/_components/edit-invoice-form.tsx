@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { Plus, X } from 'lucide-react';
-import { Customer, Product, Invoice } from '@prisma/client';
+import { Customer, Product, CompanyInfo } from '@prisma/client';
 import { Combobox } from '@/components/ui/combobox';
 import {
   Table,
@@ -20,26 +20,13 @@ import {
 } from '@/components/ui/table';
 import { Card, CardContent } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
-import { Checkbox } from '@/components/ui/checkbox'; // Import Checkbox
+import { Checkbox } from '@/components/ui/checkbox';
 
 import { printReactComponent } from '@/lib/print-utils';
 import InvoicePrintTemplate from '@/components/invoice-print-template';
+// ⭐ IMPORT: Import FullInvoice and FullInvoiceItem from your central types file
 
-// --- Type Definitions ---
-export type FullInvoiceItem = {
-  id: string;
-  productId: string;
-  quantity: number;
-  unitPrice: number;
-  total: number;
-  product: Product; // Prisma relation included
-};
-
-export type FullInvoice = Invoice & {
-  customer: Customer;
-  items: FullInvoiceItem[];
-};
-
+// Define FormInvoiceItem for internal state, mapping from FullInvoiceItem
 interface FormInvoiceItem {
   id: string; // Unique ID for React list key (can be existing item's ID or a new UUID for new items)
   productId: string;
@@ -50,14 +37,7 @@ interface FormInvoiceItem {
   total: number;
 }
 
-type CompanyInfo = {
-  id: string | null;
-  businessName: string;
-  address1: string | null;
-  mobile: string | null;
-  defaultPrintOnSave: boolean | null;
-};
-// --- End Type Definitions ---
+export type CompanyInfo = CompanyInfo;
 
 interface EditInvoiceFormProps {
   initialInvoice: FullInvoice;
@@ -72,13 +52,14 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
   const [invoiceDate, setInvoiceDate] = useState<string>(new Date(initialInvoice.invoiceDate).toISOString().split('T')[0]);
   const [notes, setNotes] = useState(initialInvoice.notes || '');
 
-  // Items state initialized from initialInvoice, ready for editing or adding new
+  // Initialize items state from initialInvoice
   const [items, setItems] = useState<FormInvoiceItem[]>(
-    initialInvoice.items.map((item) => ({
-      id: item.id, // Use existing item ID
+    initialInvoice.items.map((item: FullInvoiceItem) => ({ // Explicitly type 'item' here
+      id: item.id, // Use existing item ID for existing items
       productId: item.productId,
-      productName: item.product.name,
-      productCode: item.product.code,
+      // ✨ CRITICAL: Safely access product properties with optional chaining and fallbacks ✨
+      productName: item.product?.name || 'Unknown Product',
+      productCode: item.product?.code || 'N/A',
       quantity: item.quantity,
       unitPrice: item.unitPrice,
       total: item.total,
@@ -88,7 +69,7 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
   const [discountAmount, setDiscountAmount] = useState<number>(initialInvoice.discountAmount);
   const [paidAmount, setPaidAmount] = useState<number>(initialInvoice.paidAmount);
 
-  // States for adding a new product line (matching new invoice form)
+  // States for adding a new product line
   const [selectedProductToAdd, setSelectedProductToAdd] = useState<string | null>(null);
   const [quantityToAdd, setQuantityToAdd] = useState<number>(1);
   const [unitPriceToAdd, setUnitPriceToAdd] = useState<number>(0);
@@ -97,9 +78,7 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
   const [shouldPrint, setShouldPrint] = useState<boolean>(true);
 
   // Store the customer's balance *before* the impact of this invoice was added
-  // This is for display on the printout as "Previous Balance"
   const [customerBalanceBeforeThisInvoice, setCustomerBalanceBeforeThisInvoice] = useState<number>(0);
-
 
   useEffect(() => {
     const fetchData = async () => {
@@ -114,10 +93,14 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
           throw new Error('Failed to fetch initial data.');
         }
 
-        const customersData: Customer[] = await customersRes.json();
-        const productsData: Product[] = await productsRes.json();
-        const companyInfoData: CompanyInfo = await companyInfoRes.json();
+        const customersResponse = await customersRes.json();
+        const customersData: Customer[] = Array.isArray(customersResponse.data) ? customersResponse.data : [];
 
+        const productsResponse = await productsRes.json();
+        const productsData: Product[] = Array.isArray(productsResponse.data) ? productsResponse.data : [];
+
+        // Cast to CompanyInfo (Prisma.Company) to ensure type compatibility
+        const companyInfoData: CompanyInfo = await companyInfoRes.json();
 
         setCustomers(customersData);
         setProducts(productsData);
@@ -126,20 +109,19 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
         setShouldPrint(companyInfoData.defaultPrintOnSave ?? true);
 
         // Calculate customer's balance *before* this invoice's impact
-        // Customer's current balance - this invoice's current balanceDue
-        // We need the customer's *actual* current balance from the fresh fetch
         const customerActualCurrentBalance = customersData.find(c => c.id === initialInvoice.customerId)?.balance || 0;
         const calculatedBalanceBeforeThisInvoice = customerActualCurrentBalance - initialInvoice.balanceDue;
         setCustomerBalanceBeforeThisInvoice(calculatedBalanceBeforeThisInvoice);
 
-
       } catch (error) {
         console.error('Error fetching initial data:', error);
         toast.error('Failed to load initial data.');
+        setCustomers([]);
+        setProducts([]);
       }
     };
     fetchData();
-  }, [initialInvoice.customerId, initialInvoice.balanceDue]); // Depend on initialInvoice for recalculation
+  }, [initialInvoice.customerId, initialInvoice.balanceDue]);
 
   // Update unitPriceToAdd when a product is selected in the "add new product" row
   useEffect(() => {
@@ -155,7 +137,7 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
 
   // --- Handlers for existing invoice items (in the table) ---
   const handleItemUpdate = (
-    itemId: string, // This is the unique 'id' used as key for FormInvoiceItem
+    itemId: string,
     field: keyof FormInvoiceItem,
     value: any
   ) => {
@@ -163,7 +145,6 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
       prevItems.map((item) => {
         if (item.id === itemId) {
           const updatedItem = { ...item, [field]: value };
-          // Recalculate total if quantity or unitPrice changes
           if (field === 'quantity' || field === 'unitPrice') {
             updatedItem.total = (updatedItem.quantity || 0) * (updatedItem.unitPrice || 0);
           }
@@ -189,7 +170,6 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
 
     const product = products.find((p) => p.id === selectedProductToAdd);
     if (product) {
-      // Check if product already exists in current items
       const existingItem = items.find(item => item.productId === product.id);
       if (existingItem) {
         toast.error('Product already added. Edit the existing item in the table.');
@@ -199,7 +179,7 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
       setItems((prevItems) => [
         ...prevItems,
         {
-          id: crypto.randomUUID(), // Assign a new UUID for a newly added item
+          id: crypto.randomUUID(), // Generate a new ID for new items
           productId: product.id,
           productName: product.name,
           productCode: product.code,
@@ -208,7 +188,6 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
           total: quantityToAdd * unitPriceToAdd,
         },
       ]);
-      // Reset the "add product" inputs
       setSelectedProductToAdd(null);
       setQuantityToAdd(1);
       setUnitPriceToAdd(0);
@@ -226,7 +205,6 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
     return Math.max(0, subtotal - discountAmount);
   }, [subtotal, discountAmount]);
 
-  // Balance due for this specific bill (after current changes)
   const currentBillBalanceDue = useMemo(() => {
     return Math.max(0, netAmount - paidAmount);
   }, [netAmount, paidAmount]);
@@ -269,14 +247,18 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
         body: JSON.stringify({
           customerId: selectedCustomer.id,
           invoiceDate,
+          // Only send necessary fields to the backend for items.
+          // The backend handles the creation/update/deletion based on `id` presence.
           items: items.map(({ id, productName, productCode, ...rest }) => ({
             ...rest,
+            // Only include 'id' if it's an existing item (i.e., not a newly added one)
+            // This is how your backend distinguishes between update and create.
             id: initialInvoice.items.some(initialItem => initialItem.id === id) ? id : undefined,
           })),
           notes,
           totalAmount: subtotal,
           discountAmount,
-          paidAmount, // Paid amount is sent to the backend
+          paidAmount,
         }),
       });
 
@@ -313,10 +295,8 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
 
   return (
     <div className="container mx-auto py-10">
-      <h1 className="text-3xl font-bold mb-8">Edit Invoice</h1>
       <Card className="max-w-6xl mx-auto p-6 space-y-8">
         <CardContent className="p-0 space-y-6">
-          {/* --- Invoice Number & Date & Customer Selection --- */}
           <div className="flex flex-col md:flex-row md:items-end gap-4">
             <div className="flex-1 w-full md:w-auto">
               <div className="space-y-2">
@@ -344,6 +324,7 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
               <div className="space-y-2">
                 <Label htmlFor="customer">Select Customer</Label>
                 <Combobox
+                  id="customer" // ⭐ FIX: Pass the 'id' prop here
                   items={customers}
                   value={selectedCustomer?.id || null}
                   onSelect={(id) =>
@@ -375,7 +356,7 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
 
           <div className="space-y-4">
             <h3 className="text-lg font-semibold">Invoice Items</h3>
-            {items.length > 0 && (
+            {items.length > 0 ? (
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -389,7 +370,7 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
                 </TableHeader>
                 <TableBody>
                   {items.map((item) => (
-                    <TableRow key={item.id}>
+                    <TableRow key={item.id}> {/* Ensure unique key */}
                       <TableCell>{item.productCode}</TableCell>
                       <TableCell className="font-medium">{item.productName}</TableCell>
                       <TableCell className="w-[120px]">
@@ -410,7 +391,7 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
                           min="1"
                           value={item.quantity === 0 ? '' : item.quantity}
                           onChange={(e) =>
-                            handleItemUpdate(item.id, 'quantity', parseInt(e.target.value) || 0)
+                            handleItemUpdate(item.id, 'quantity', parseInt(e.target.value) || 1)
                           }
                           className="text-right"
                         />
@@ -431,13 +412,15 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
                   ))}
                 </TableBody>
               </Table>
+            ) : (
+              <p className="text-center text-muted-foreground">No items added yet. Use the fields below to add products.</p>
             )}
 
             <div className="flex flex-wrap items-end gap-4 mt-4">
               <div className="flex-1 min-w-[200px] sm:min-w-[250px] md:min-w-[300px] space-y-2">
                 <Label htmlFor="productToAdd">Add New Product</Label>
                 <Combobox
-                  id="productToAdd"
+                  id="productToAdd" // ⭐ FIX: Pass the 'id' prop here
                   items={products}
                   value={selectedProductToAdd}
                   onSelect={setSelectedProductToAdd}

@@ -26,8 +26,8 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const customerId = searchParams.get('customerId');
   const query = searchParams.get('query'); // For general search
-  const orderBy = searchParams.get('orderBy') || 'createdAt';
-  const direction = searchParams.get('direction') === 'asc' ? 'asc' : 'desc';
+  const orderBy = searchParams.get('orderBy') || 'createdAt'; // Default orderBy to 'createdAt'
+  const direction = searchParams.get('direction') === 'asc' ? 'asc' : 'desc'; // Default direction to 'desc'
   const limit = parseInt(searchParams.get('limit') || '10', 10);
   const page = parseInt(searchParams.get('page') || '1', 10);
   const skip = (page - 1) * limit;
@@ -40,7 +40,7 @@ export async function GET(request: Request) {
     if (query) {
       whereClause.OR = [
         { paymentNumber: { contains: query, mode: 'insensitive' } },
-        { customer: { name: { contains: query, mode: 'insensitive' } } },
+        { customer: { name: { contains: query, mode: 'insensitive' } } }, // Search by customer name
         { notes: { contains: query, mode: 'insensitive' } },
       ];
     }
@@ -56,6 +56,8 @@ export async function GET(request: Request) {
                 select: {
                   id: true,
                   invoiceNumber: true,
+                  totalAmount: true, // Included for display
+                  paidAmount: true, // Included for display
                   balanceDue: true,
                   status: true,
                 },
@@ -72,7 +74,27 @@ export async function GET(request: Request) {
       prisma.payment.count({ where: whereClause }),
     ]);
 
-    return NextResponse.json({ payments, totalCount });
+    // Transform payments to flatten allocations for display
+    const formattedPayments = payments.map(p => ({
+      ...p,
+      allocatedTo: p.paymentAllocations.map(pa => ({
+        invoiceId: pa.invoice.id,
+        invoiceNumber: pa.invoice.invoiceNumber,
+        allocatedAmount: pa.allocatedAmount,
+        invoiceTotal: pa.invoice.totalAmount,
+        invoicePaidAmount: pa.invoice.paidAmount,
+      }))
+    }));
+
+    return NextResponse.json({
+      data: formattedPayments, // Changed to 'data' to match customer API structure
+      pagination: {
+        total: totalCount,
+        totalPages: Math.ceil(totalCount / limit),
+        currentPage: page,
+        limit,
+      },
+    });
   } catch (error) {
     console.error('Error fetching payments:', error);
     return NextResponse.json({ error: 'Failed to fetch payments', details: (error as Error).message }, { status: 500 });
@@ -81,7 +103,8 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const { customerId, amount, paymentDate, notes } = await request.json(); // 'allocations' removed from request body
+    // The request body for POST remains simplified as auto-allocation happens on the backend.
+    const { customerId, amount, paymentDate, notes } = await request.json();
 
     // 1. Basic validation
     if (!customerId) {
@@ -107,6 +130,7 @@ export async function POST(request: Request) {
         invoiceNumber: true,
         balanceDue: true,
         paidAmount: true,
+        totalAmount: true, // Ensure totalAmount is selected for consistency if needed elsewhere
         netAmount: true,
       },
     });
