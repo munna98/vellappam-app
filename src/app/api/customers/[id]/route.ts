@@ -1,59 +1,63 @@
 // src/app/api/customers/[id]/route.ts
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 import prisma from '@/lib/prisma';
-import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library'; // Import specific Prisma error type
+import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
+
+// Helper to extract ID from the URL
+function extractId(request: NextRequest): string | null {
+  const url = new URL(request.url);
+  const parts = url.pathname.split('/');
+  return parts[parts.length - 1] || null;
+}
 
 // GET /api/customers/[id]
-export async function GET(request: Request, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest) {
+  const id = extractId(request);
+  if (!id) return NextResponse.json({ error: 'Invalid customer ID' }, { status: 400 });
+
   try {
-    const { id } = params;
-    const customer = await prisma.customer.findUnique({
-      where: { id },
-    });
+    const customer = await prisma.customer.findUnique({ where: { id } });
 
     if (!customer) {
       return NextResponse.json({ error: 'Customer not found' }, { status: 404 });
     }
+
     return NextResponse.json(customer);
   } catch (error) {
-    console.error(`Error fetching customer ${params.id}:`, error);
+    console.error(`Error fetching customer ${id}:`, error);
     return NextResponse.json({ error: 'Failed to fetch customer' }, { status: 500 });
   }
 }
 
 // PUT /api/customers/[id]
-export async function PUT(request: Request, { params }: { params: { id: string } }) {
+export async function PUT(request: NextRequest) {
+  const id = extractId(request);
+  if (!id) return NextResponse.json({ error: 'Invalid customer ID' }, { status: 400 });
+
   try {
-    const { id } = params;
     const body = await request.json();
-    // Destructure properties from body, allowing TypeScript to infer types
     const { name, code, contactPerson, phone, address } = body;
 
-    // Basic validation
     if (!name || !code) {
       return NextResponse.json({ error: 'Name and Code are required' }, { status: 400 });
     }
 
     const updatedCustomer = await prisma.customer.update({
       where: { id },
-      data: {
-        name,
-        code,
-        contactPerson,
-        phone,
-        address,
-      },
+      data: { name, code, contactPerson, phone, address },
     });
+
     return NextResponse.json(updatedCustomer);
-  } catch (error) { // ⭐ Changed 'error: any' to 'error' and then check its type
-    console.error(`Error updating customer ${params.id}:`, error);
-    if (error instanceof PrismaClientKnownRequestError) { // ⭐ Use Prisma's specific error type
-      if (error.code === 'P2002') { // Unique constraint violation
-        if (error.meta?.target && Array.isArray(error.meta.target)) {
-          if (error.meta.target.includes('phone')) {
+  } catch (error) {
+    console.error(`Error updating customer ${id}:`, error);
+    if (error instanceof PrismaClientKnownRequestError) {
+      if (error.code === 'P2002') {
+        const target = error.meta?.target;
+        if (Array.isArray(target)) {
+          if (target.includes('phone')) {
             return NextResponse.json({ error: 'Phone number already exists.' }, { status: 409 });
           }
-          if (error.meta.target.includes('code')) {
+          if (target.includes('code')) {
             return NextResponse.json({ error: 'Customer code already exists.' }, { status: 409 });
           }
         }
@@ -64,31 +68,25 @@ export async function PUT(request: Request, { params }: { params: { id: string }
 }
 
 // DELETE /api/customers/[id]
-export async function DELETE(request: Request, { params }: { params: { id: string } }) {
-  try {
-    const { id } = params;
+export async function DELETE(request: NextRequest) {
+  const id = extractId(request);
+  if (!id) return NextResponse.json({ error: 'Invalid customer ID' }, { status: 400 });
 
-    // Before deleting, check if there are any related invoices or payments
-    const relatedInvoices = await prisma.invoice.count({
-      where: { customerId: id },
-    });
-    const relatedPayments = await prisma.payment.count({
-      where: { customerId: id },
-    });
+  try {
+    const relatedInvoices = await prisma.invoice.count({ where: { customerId: id } });
+    const relatedPayments = await prisma.payment.count({ where: { customerId: id } });
 
     if (relatedInvoices > 0 || relatedPayments > 0) {
       return NextResponse.json(
         { error: 'Cannot delete customer with associated invoices or payments.' },
-        { status: 409 } // Conflict
+        { status: 409 }
       );
     }
 
-    await prisma.customer.delete({
-      where: { id },
-    });
+    await prisma.customer.delete({ where: { id } });
     return NextResponse.json({ message: 'Customer deleted successfully' }, { status: 200 });
   } catch (error) {
-    console.error(`Error deleting customer ${params.id}:`, error);
+    console.error(`Error deleting customer ${id}:`, error);
     return NextResponse.json({ error: 'Failed to delete customer' }, { status: 500 });
   }
 }
