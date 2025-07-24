@@ -1,3 +1,4 @@
+// src/app/payments/page.tsx
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
@@ -119,20 +120,16 @@ export default function PaymentsPage() {
     const pages = [];
     const maxVisible = 5;
 
-    // ⭐ FIX: Re-structured to avoid linter warning for 'end'
-    // Calculate a potential start page
-    let tempStart = Math.max(1, pagination.currentPage - Math.floor(maxVisible / 2));
-    // Calculate a potential end page
-    let tempEnd = Math.min(pagination.totalPages, tempStart + maxVisible - 1);
+    // ⭐ FIX: Calculate 'start' and 'end' directly using const
+    const start = Math.max(
+      1,
+      Math.min(
+        pagination.currentPage - Math.floor(maxVisible / 2),
+        pagination.totalPages - maxVisible + 1 // Ensure 'start' is not too high if near end
+      )
+    );
 
-    // Adjust start if the end page is capped by totalPages and we haven't shown maxVisible pages
-    if (tempEnd - tempStart + 1 < maxVisible && pagination.totalPages > maxVisible) {
-      tempStart = Math.max(1, pagination.totalPages - maxVisible + 1);
-    }
-
-    // Now, declare with const as they are assigned once after calculation
-    const start = tempStart;
-    const end = tempEnd;
+    const end = Math.min(pagination.totalPages, start + maxVisible - 1);
 
     for (let i = start; i <= end; i++) {
       pages.push(
