@@ -10,10 +10,11 @@ interface FullPayment extends Payment {
   paymentAllocations: (PrismaPaymentAllocation & { invoice: Invoice })[];
 }
 
+// ⭐ FIX: Update EditPaymentPageProps to reflect that params is now a Promise
 interface EditPaymentPageProps {
-  params: {
-    id: string; 
-  };
+  params: Promise<{
+    id: string;
+  }>;
 }
 
 async function getPayment(id: string): Promise<FullPayment | null> {
@@ -27,11 +28,16 @@ async function getPayment(id: string): Promise<FullPayment | null> {
         },
       },
     },
-  });
+  }) as Promise<FullPayment | null>; // Add a cast here to match the return type, as Prisma might return a more generic Payment type
 }
 
+// ⭐ FIX: Await params before destructuring
 export default async function EditPaymentPage({ params }: EditPaymentPageProps) {
-  const payment = await getPayment(params.id);
+  // Await the params object to get the actual id value
+  const resolvedParams = await params;
+  const paymentId = resolvedParams.id;
+
+  const payment = await getPayment(paymentId);
 
   if (!payment) {
     return (

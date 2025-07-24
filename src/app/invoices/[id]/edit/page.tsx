@@ -5,14 +5,14 @@ import { EditInvoiceForm } from './_components/edit-invoice-form';
 import { Prisma } from '@prisma/client';
 // import { FullInvoice } from '@/types'; // This import might be redundant if PrismaFullInvoice is sufficient
 
+// ⭐ FIX: Update EditInvoicePageProps to reflect that params is now a Promise
 interface EditInvoicePageProps {
-  params: {
+  params: Promise<{
     id: string;
-  };
+  }>;
 }
 
-// ⭐ FIX: Remove the 'fullInvoiceWithRelations' constant if its only purpose is type inference
-// Instead, directly define the type based on Prisma.$Include or Prisma.Args
+// ⭐ NOTE: Your PrismaFullInvoice type definition is excellent and correct for Prisma.
 type PrismaFullInvoice = Prisma.InvoiceGetPayload<
   {
     include: {
@@ -51,8 +51,13 @@ async function getInvoice(id: string): Promise<PrismaFullInvoice | null> {
   }
 }
 
+// ⭐ FIX: Await params before destructuring
 export default async function EditInvoicePage({ params }: EditInvoicePageProps) {
-  const invoice = await getInvoice(params.id);
+  // Await the params object to get the actual id value
+  const resolvedParams = await params;
+  const invoiceId = resolvedParams.id;
+
+  const invoice = await getInvoice(invoiceId);
 
   if (!invoice) {
     return (

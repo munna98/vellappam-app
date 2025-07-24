@@ -4,10 +4,11 @@ import { Customer } from '@prisma/client';
 import prisma from '@/lib/prisma';
 import { EditCustomerForm } from './_components/edit-customer-form'; // New client component
 
+// ⭐ FIX: Update EditCustomerPageProps to reflect that params is now a Promise
 interface EditCustomerPageProps {
-  params: {
+  params: Promise<{
     id: string;
-  };
+  }>;
 }
 
 async function getCustomer(id: string): Promise<Customer | null> {
@@ -16,8 +17,13 @@ async function getCustomer(id: string): Promise<Customer | null> {
   });
 }
 
+// ⭐ FIX: Await params before destructuring
 export default async function EditCustomerPage({ params }: EditCustomerPageProps) {
-  const customer = await getCustomer(params.id);
+  // Await the params object to get the actual id value
+  const resolvedParams = await params;
+  const customerId = resolvedParams.id;
+
+  const customer = await getCustomer(customerId);
 
   if (!customer) {
     return (
