@@ -1,6 +1,7 @@
+// src/app/customers/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react'; // ⭐ Import useCallback
 import Link from 'next/link';
 import { useDebounce } from '@/lib/useDebounce';
 import { Input } from '@/components/ui/input';
@@ -53,12 +54,13 @@ export default function CustomersPage() {
   const [isLoading, setIsLoading] = useState(true);
   const debouncedSearchTerm = useDebounce(searchTerm, 500);
 
-  const fetchCustomers = async (page = 1, search = '') => {
+  // ⭐ Wrap fetchCustomers in useCallback to stabilize the function reference
+  const fetchCustomers = useCallback(async (page = 1, search = '') => {
     setIsLoading(true);
     try {
       const query = new URLSearchParams({
         page: page.toString(),
-        limit: pagination.limit.toString(),
+        limit: pagination.limit.toString(), // pagination.limit is stable after initial render or if it changes, this useCallback will re-memoize
         ...(search && { search }),
       }).toString();
 
@@ -68,17 +70,23 @@ export default function CustomersPage() {
       if (response.ok) {
         setCustomers(data.data);
         setPagination(data.pagination);
+      } else {
+        console.error('Failed to fetch customers:', data.error);
+        setCustomers([]);
+        setPagination({ total: 0, totalPages: 1, currentPage: 1, limit: 10 });
       }
     } catch (error) {
       console.error('Error fetching customers:', error);
+      setCustomers([]);
+      setPagination({ total: 0, totalPages: 1, currentPage: 1, limit: 10 });
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [pagination.limit]); // ⭐ Add pagination.limit to the useCallback dependency array
 
   useEffect(() => {
     fetchCustomers(1, debouncedSearchTerm);
-  }, [debouncedSearchTerm]);
+  }, [debouncedSearchTerm, fetchCustomers]); // ⭐ Add fetchCustomers to dependency array
 
   const handlePageChange = (page: number) => {
     if (page >= 1 && page <= pagination.totalPages) {
@@ -91,11 +99,15 @@ export default function CustomersPage() {
 
     const newTotal = pagination.total - 1;
     const newTotalPages = Math.ceil(newTotal / pagination.limit);
-    const newCurrentPage =
-      customers.length === 1 && pagination.currentPage > 1
-        ? pagination.currentPage - 1
-        : pagination.currentPage;
+    let newCurrentPage = pagination.currentPage; // Use let as it might be reassigned
 
+    // If the last item on the current page was deleted, and there are previous pages,
+    // go to the previous page.
+    if (customers.length === 1 && pagination.currentPage > 1) {
+      newCurrentPage = pagination.currentPage - 1;
+    }
+    
+    // Update pagination state
     setPagination(prev => ({
       ...prev,
       total: newTotal,
@@ -103,19 +115,22 @@ export default function CustomersPage() {
       currentPage: newCurrentPage,
     }));
 
-    if (newCurrentPage !== pagination.currentPage) {
-      fetchCustomers(newCurrentPage, debouncedSearchTerm);
-    }
+    // Only re-fetch if the page changes or if we're on the last page and the last item was deleted
+    // (meaning the current page is now empty and needs to show the previous page's data).
+    // Or simply re-fetch for the current page if it's not changing, to update the list
+    // if there are still items on the page.
+    fetchCustomers(newCurrentPage, debouncedSearchTerm);
   };
 
   const renderPageNumbers = () => {
     const pages = [];
     const maxVisible = 5;
-    let start = Math.max(1, pagination.currentPage - 2);
-    let end = Math.min(pagination.totalPages, start + maxVisible - 1);
+    let start = Math.max(1, pagination.currentPage - Math.floor(maxVisible / 2)); // Calculate start dynamically
+    const end = Math.min(pagination.totalPages, start + maxVisible - 1); // ⭐ Changed 'let end' to 'const end' if not reassigned
 
-    if (pagination.totalPages > maxVisible && end - start < maxVisible - 1) {
-      start = Math.max(1, end - maxVisible + 1);
+    // Adjust start if 'end' calculation causes fewer than maxVisible pages to show
+    if (end - start + 1 < maxVisible && pagination.totalPages > maxVisible) {
+      start = Math.max(1, pagination.totalPages - maxVisible + 1);
     }
 
     for (let i = start; i <= end; i++) {
@@ -239,7 +254,7 @@ export default function CustomersPage() {
                 </PaginationContent>
               </Pagination>
 
-              <div className="text-sm text-muted-foreground mt-2">
+              <div className="text-sm text-muted-foreground text-center mt-2">
                 Showing {(pagination.currentPage - 1) * pagination.limit + 1} to{' '}
                 {Math.min(pagination.currentPage * pagination.limit, pagination.total)} of{' '}
                 {pagination.total} customers

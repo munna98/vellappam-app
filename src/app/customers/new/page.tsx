@@ -28,7 +28,7 @@ const formSchema = z.object({
 
 export default function NewCustomerPage() {
   const router = useRouter();
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false); // Changed initial state to false for form submission loading
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -48,11 +48,13 @@ export default function NewCustomerPage() {
     if (businessName && !form.formState.dirtyFields.contactPerson) {
       form.setValue('contactPerson', businessName, { shouldValidate: true });
     }
-  }, [businessName, form]);
+  }, [businessName, form]); // Added 'form' to dependency array as it's used inside
 
   // Effect to fetch next customer code on component mount
   useEffect(() => {
     const fetchNextCustomerCode = async () => {
+      // Set loading specifically for code fetching, not the whole form
+      setIsLoading(true); 
       try {
         const response = await fetch('/api/customers/next-code');
         if (!response.ok) {
@@ -69,9 +71,10 @@ export default function NewCustomerPage() {
       }
     };
     fetchNextCustomerCode();
-  }, [form]);
+  }, [form]); // Added 'form' to dependency array
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
+    setIsLoading(true); // Set loading for form submission
     try {
       const response = await fetch('/api/customers', {
         method: 'POST',
@@ -87,9 +90,12 @@ export default function NewCustomerPage() {
       toast.success('Customer created successfully!');
       router.push('/customers');
       router.refresh();
-    } catch (error: any) {
+    } catch (error) { // ⭐ Removed ': any'
       console.error(error);
-      toast.error(error.message || 'Error creating customer.');
+      // ⭐ Safely access message property
+      toast.error((error as Error).message || 'Error creating customer.');
+    } finally {
+      setIsLoading(false); // Reset loading after submission attempt
     }
   }
 
@@ -118,10 +124,10 @@ export default function NewCustomerPage() {
               <FormItem>
                 <FormLabel>Customer Code</FormLabel>
                 <FormControl>
-                  <Input 
-                    placeholder="e.g., CUST1" 
-                    {...field} 
-                    disabled={isLoading}
+                  <Input
+                    placeholder="e.g., CUST1"
+                    {...field}
+                    disabled={isLoading} // Disable while code is loading
                   />
                 </FormControl>
                 <FormMessage />
@@ -135,10 +141,10 @@ export default function NewCustomerPage() {
               <FormItem>
                 <FormLabel>Contact Person</FormLabel>
                 <FormControl>
-                  <Input 
-                    placeholder="Enter contact person's name" 
-                    {...field} 
-                    value={field.value || ''} 
+                  <Input
+                    placeholder="Enter contact person's name"
+                    {...field}
+                    value={field.value || ''}
                   />
                 </FormControl>
                 <FormMessage />
@@ -152,10 +158,10 @@ export default function NewCustomerPage() {
               <FormItem>
                 <FormLabel>Phone Number</FormLabel>
                 <FormControl>
-                  <Input 
-                    placeholder="Enter phone number" 
-                    {...field} 
-                    value={field.value || ''} 
+                  <Input
+                    placeholder="Enter phone number"
+                    {...field}
+                    value={field.value || ''}
                   />
                 </FormControl>
                 <FormMessage />
@@ -169,10 +175,10 @@ export default function NewCustomerPage() {
               <FormItem>
                 <FormLabel>Address</FormLabel>
                 <FormControl>
-                  <Input 
-                    placeholder="Enter address" 
-                    {...field} 
-                    value={field.value || ''} 
+                  <Input
+                    placeholder="Enter address"
+                    {...field}
+                    value={field.value || ''}
                   />
                 </FormControl>
                 <FormMessage />

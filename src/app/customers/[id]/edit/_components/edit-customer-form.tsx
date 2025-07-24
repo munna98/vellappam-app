@@ -4,7 +4,7 @@
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import * as z from 'zod'; // Corrected import
+import * as z from 'zod';
 import { Button } from '@/components/ui/button';
 import {
   Form,
@@ -61,9 +61,10 @@ export function EditCustomerForm({ customer }: EditCustomerFormProps) {
       toast.success('Customer updated successfully!');
       router.push('/customers');
       router.refresh();
-    } catch (error: any) {
+    } catch (error) { // ⭐ Removed ': any'
       console.error(error);
-      toast.error(error.message || 'Error updating customer.');
+      // ⭐ Safely access message property
+      toast.error((error as Error).message || 'Error updating customer.');
     }
   }
 

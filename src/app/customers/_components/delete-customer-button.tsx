@@ -23,10 +23,10 @@ interface DeleteCustomerButtonProps {
   onDelete?: (deletedId: string) => void;
 }
 
-export function DeleteCustomerButton({ 
-  customerId, 
+export function DeleteCustomerButton({
+  customerId,
   customerName,
-  onDelete 
+  onDelete
 }: DeleteCustomerButtonProps) {
   const [isLoading, setIsLoading] = useState(false);
 
@@ -46,9 +46,10 @@ export function DeleteCustomerButton({
       if (onDelete) {
         onDelete(customerId);
       }
-    } catch (error: any) {
+    } catch (error) { // ⭐ Removed ': any'
       console.error('Error deleting customer:', error);
-      toast.error(error.message || 'Error deleting customer.');
+      // ⭐ Safely access message property
+      toast.error((error as Error).message || 'Error deleting customer.');
     } finally {
       setIsLoading(false);
     }
@@ -68,6 +69,7 @@ export function DeleteCustomerButton({
             This action cannot be undone. This will permanently delete the customer{' '}
             <span className="font-semibold">{customerName}</span> and remove their data from our
             servers.
+            <br />
             <br />
             **Note:** Customers with associated invoices or payments cannot be deleted.
           </AlertDialogDescription>
