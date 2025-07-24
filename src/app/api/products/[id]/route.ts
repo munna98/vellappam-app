@@ -1,13 +1,21 @@
 // src/app/api/products/[id]/route.ts
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server'; // Import NextRequest
 import prisma from '@/lib/prisma';
-// Import specific Prisma error type for better error handling
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
 
+// Helper to extract ID from the URL (re-use the same logic)
+function extractId(request: NextRequest): string | null {
+  const url = new URL(request.url);
+  const parts = url.pathname.split('/');
+  return parts[parts.length - 1] || null;
+}
+
 // GET /api/products/[id]
-export async function GET(request: Request, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest) { // Changed signature: removed { params }
+  const id = extractId(request); // Extract ID from request.url
+  if (!id) return NextResponse.json({ error: 'Invalid product ID' }, { status: 400 });
+
   try {
-    const { id } = params;
     const product = await prisma.product.findUnique({
       where: { id },
     });
@@ -16,20 +24,24 @@ export async function GET(request: Request, { params }: { params: { id: string }
       return NextResponse.json({ error: 'Product not found' }, { status: 404 });
     }
     return NextResponse.json(product);
-  } catch (error) {
-    console.error(`Error fetching product ${params.id}:`, error);
-    return NextResponse.json({ error: 'Failed to fetch product' }, { status: 500 });
+  } catch (error: unknown) { // Explicitly type error as unknown
+    console.error(`Error fetching product ${id}:`, error); // Use id from extraction
+    // Narrow down error type for a more specific message if needed
+    const errorMessage = error instanceof Error ? error.message : 'Failed to fetch product';
+    return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }
 
 // PUT /api/products/[id]
-export async function PUT(request: Request, { params }: { params: { id: string } }) {
+export async function PUT(request: NextRequest) { // Changed signature: removed { params }
+  const id = extractId(request); // Extract ID from request.url
+  if (!id) return NextResponse.json({ error: 'Invalid product ID' }, { status: 400 });
+
   try {
-    const { id } = params;
     const body = await request.json();
     const { name, code, price, unit } = body;
 
-    if (!name || !code || typeof price === 'undefined' || !unit) { // Changed !price to typeof price === 'undefined'
+    if (!name || !code || typeof price === 'undefined' || !unit) {
       return NextResponse.json({ error: 'All fields are required' }, { status: 400 });
     }
 
@@ -43,26 +55,28 @@ export async function PUT(request: Request, { params }: { params: { id: string }
       },
     });
     return NextResponse.json(updatedProduct);
-  } catch (error) {
-    console.error(`Error updating product ${params.id}:`, error);
+  } catch (error: unknown) { // Explicitly type error as unknown
+    console.error(`Error updating product ${id}:`, error); // Use id from extraction
     // Properly type the error to check for Prisma specific errors
     if (error instanceof PrismaClientKnownRequestError) {
       if (error.code === 'P2002' && error.meta?.target && Array.isArray(error.meta.target) && error.meta.target.includes('code')) {
         return NextResponse.json({ error: 'Product code already exists.' }, { status: 409 });
       }
     }
-    return NextResponse.json({ error: 'Failed to update product' }, { status: 500 });
+    const errorMessage = error instanceof Error ? error.message : 'Failed to update product';
+    return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }
 
 // DELETE /api/products/[id]
-export async function DELETE(request: Request, { params }: { params: { id: string } }) {
-  try {
-    const { id } = params;
+export async function DELETE(request: NextRequest) { // Changed signature: removed { params }
+  const id = extractId(request); // Extract ID from request.url
+  if (!id) return NextResponse.json({ error: 'Invalid product ID' }, { status: 400 });
 
+  try {
     // Check for associated invoice items before deleting
     const relatedInvoiceItems = await prisma.invoiceItem.count({
-      where: { productId: id },
+      where: { productId: id }, // Use id from extraction
     });
 
     if (relatedInvoiceItems > 0) {
@@ -73,11 +87,12 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
     }
 
     await prisma.product.delete({
-      where: { id },
+      where: { id }, // Use id from extraction
     });
     return NextResponse.json({ message: 'Product deleted successfully' }, { status: 200 });
-  } catch (error) {
-    console.error(`Error deleting product ${params.id}:`, error);
-    return NextResponse.json({ error: 'Failed to delete product' }, { status: 500 });
+  } catch (error: unknown) { // Explicitly type error as unknown
+    console.error(`Error deleting product ${id}:`, error); // Use id from extraction
+    const errorMessage = error instanceof Error ? error.message : 'Failed to delete product';
+    return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }

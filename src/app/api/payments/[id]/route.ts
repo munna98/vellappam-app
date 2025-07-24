@@ -1,11 +1,20 @@
 // src/app/api/payments/[id]/route.ts
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server'; // Import NextRequest
 import prisma from '@/lib/prisma';
 import { InvoiceStatus } from '@prisma/client';
 
-export async function GET(request: Request, { params }: { params: { id: string } }) {
+// Helper to extract ID from the URL (re-use the same logic)
+function extractId(request: NextRequest): string | null {
+  const url = new URL(request.url);
+  const parts = url.pathname.split('/');
+  return parts[parts.length - 1] || null;
+}
+
+export async function GET(request: NextRequest) { // Changed signature: removed { params }
+  const id = extractId(request); // Extract ID from request.url
+  if (!id) return NextResponse.json({ error: 'Invalid payment ID' }, { status: 400 });
+
   try {
-    const { id } = params;
     const payment = await prisma.payment.findUnique({
       where: { id },
       include: {
@@ -22,17 +31,18 @@ export async function GET(request: Request, { params }: { params: { id: string }
       return NextResponse.json({ error: 'Payment not found' }, { status: 404 });
     }
     return NextResponse.json(payment);
-  } catch (error: unknown) { // ⭐ Use unknown for caught errors
-    console.error(`Error fetching payment ${params.id}:`, error);
-    // Narrow down error type if specific properties are needed
+  } catch (error: unknown) {
+    console.error(`Error fetching payment ${id}:`, error); // Use id from extraction
     const errorMessage = error instanceof Error ? error.message : 'Failed to fetch payment';
     return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }
 
-export async function PUT(request: Request, { params }: { params: { id: string } }) {
+export async function PUT(request: NextRequest) { // Changed signature: removed { params }
+  const id = extractId(request); // Extract ID from request.url
+  if (!id) return NextResponse.json({ error: 'Invalid payment ID' }, { status: 400 });
+
   try {
-    const { id } = params;
     const { customerId, amount, paymentDate, notes } = await request.json();
 
     // Basic validation
@@ -43,7 +53,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     const updatedPayment = await prisma.$transaction(async (prisma) => {
       // 1. Get the original payment details and its allocations
       const originalPayment = await prisma.payment.findUnique({
-        where: { id },
+        where: { id }, // Use id from extraction
         include: {
           paymentAllocations: {
             include: {
@@ -102,12 +112,12 @@ export async function PUT(request: Request, { params }: { params: { id: string }
       }
       // Delete all old allocations for this payment
       await prisma.paymentAllocation.deleteMany({
-        where: { paymentId: id },
+        where: { paymentId: id }, // Use id from extraction
       });
 
       // 3. Update the Payment record itself
       const payment = await prisma.payment.update({
-        where: { id },
+        where: { id }, // Use id from extraction
         data: {
           customerId,
           amount,
@@ -199,22 +209,23 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     });
 
     return NextResponse.json(updatedPayment);
-  } catch (error: unknown) { // ⭐ Use unknown for caught errors
-    console.error(`Error updating payment ${params.id}:`, error);
+  } catch (error: unknown) {
+    console.error(`Error updating payment ${id}:`, error); // Use id from extraction
     const errorMessage = error instanceof Error ? error.message : 'Failed to update payment';
     return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }
 
-// DELETE /api/payments/[id] - Delete a payment (No changes needed for logic)
-export async function DELETE(request: Request, { params }: { params: { id: string } }) {
-  try {
-    const { id } = params;
+// DELETE /api/payments/[id] - Delete a payment
+export async function DELETE(request: NextRequest) { // Changed signature: removed { params }
+  const id = extractId(request); // Extract ID from request.url
+  if (!id) return NextResponse.json({ error: 'Invalid payment ID' }, { status: 400 });
 
+  try {
     await prisma.$transaction(async (prisma) => {
       // 1. Get the payment details and its allocations
       const paymentToDelete = await prisma.payment.findUnique({
-        where: { id },
+        where: { id }, // Use id from extraction
         include: {
           paymentAllocations: {
             include: {
@@ -273,18 +284,18 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
 
       // 4. Delete associated PaymentAllocations
       await prisma.paymentAllocation.deleteMany({
-        where: { paymentId: id },
+        where: { paymentId: id }, // Use id from extraction
       });
 
       // 5. Delete the Payment itself
       await prisma.payment.delete({
-        where: { id },
+        where: { id }, // Use id from extraction
       });
     });
 
     return NextResponse.json({ message: 'Payment deleted successfully' }, { status: 200 });
-  } catch (error: unknown) { // ⭐ Use unknown for caught errors
-    console.error(`Error deleting payment ${params.id}:`, error);
+  } catch (error: unknown) {
+    console.error(`Error deleting payment ${id}:`, error); // Use id from extraction
     const errorMessage = error instanceof Error ? error.message : 'Failed to delete payment';
     return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
