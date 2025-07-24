@@ -1,7 +1,7 @@
 // src/app/api/payments/route.ts
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-import { InvoiceStatus } from '@prisma/client';
+import { InvoiceStatus, Prisma } from '@prisma/client'; // ⭐ Import Prisma client types
 
 // Helper function to generate the next payment number
 async function generateNextPaymentNumber() {
@@ -33,14 +33,18 @@ export async function GET(request: Request) {
   const skip = (page - 1) * limit;
 
   try {
-    const whereClause: any = {};
+    // ⭐ Correctly type whereClause using Prisma.PaymentWhereInput
+    // This type understands nested relations like 'customer.name'
+    const whereClause: Prisma.PaymentWhereInput = {};
+
     if (customerId) {
       whereClause.customerId = customerId;
     }
     if (query) {
       whereClause.OR = [
         { paymentNumber: { contains: query, mode: 'insensitive' } },
-        { customer: { name: { contains: query, mode: 'insensitive' } } }, // Search by customer name
+        // ⭐ This is now correctly typed due to Prisma.PaymentWhereInput
+        { customer: { name: { contains: query, mode: 'insensitive' } } },
         { notes: { contains: query, mode: 'insensitive' } },
       ];
     }
@@ -56,8 +60,8 @@ export async function GET(request: Request) {
                 select: {
                   id: true,
                   invoiceNumber: true,
-                  totalAmount: true, // Included for display
-                  paidAmount: true, // Included for display
+                  totalAmount: true,
+                  paidAmount: true,
                   balanceDue: true,
                   status: true,
                 },
@@ -65,8 +69,9 @@ export async function GET(request: Request) {
             },
           },
         },
+        // ⭐ Use Prisma.SortOrder for direction for better type safety
         orderBy: {
-          [orderBy]: direction,
+          [orderBy]: direction as Prisma.SortOrder,
         },
         skip: skip,
         take: limit,
@@ -87,7 +92,7 @@ export async function GET(request: Request) {
     }));
 
     return NextResponse.json({
-      data: formattedPayments, // Changed to 'data' to match customer API structure
+      data: formattedPayments,
       pagination: {
         total: totalCount,
         totalPages: Math.ceil(totalCount / limit),
@@ -95,15 +100,15 @@ export async function GET(request: Request) {
         limit,
       },
     });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error fetching payments:', error);
-    return NextResponse.json({ error: 'Failed to fetch payments', details: (error as Error).message }, { status: 500 });
+    const errorMessage = error instanceof Error ? error.message : 'Failed to fetch payments';
+    return NextResponse.json({ error: 'Failed to fetch payments', details: errorMessage }, { status: 500 });
   }
 }
 
 export async function POST(request: Request) {
   try {
-    // The request body for POST remains simplified as auto-allocation happens on the backend.
     const { customerId, amount, paymentDate, notes } = await request.json();
 
     // 1. Basic validation
@@ -119,18 +124,18 @@ export async function POST(request: Request) {
     const outstandingInvoices = await prisma.invoice.findMany({
       where: {
         customerId: customerId,
-        status: InvoiceStatus.PENDING, // Only consider pending invoices
-        balanceDue: { gt: 0 }, // Only invoices with outstanding balance
+        status: InvoiceStatus.PENDING,
+        balanceDue: { gt: 0 },
       },
       orderBy: {
-        invoiceDate: 'asc', // FIFO: oldest invoices first
+        invoiceDate: 'asc',
       },
       select: {
         id: true,
         invoiceNumber: true,
         balanceDue: true,
         paidAmount: true,
-        totalAmount: true, // Ensure totalAmount is selected for consistency if needed elsewhere
+        totalAmount: true,
         netAmount: true,
       },
     });
@@ -141,7 +146,7 @@ export async function POST(request: Request) {
 
     // 3. Allocate payment to invoices in FIFO order
     for (const invoice of outstandingInvoices) {
-      if (remainingPaymentAmount <= 0) break; // No more payment left
+      if (remainingPaymentAmount <= 0) break;
 
       const amountToAllocate = Math.min(remainingPaymentAmount, invoice.balanceDue);
 
@@ -169,10 +174,6 @@ export async function POST(request: Request) {
       }
     }
 
-    // If there's still remainingPaymentAmount, it means it's an overpayment or a pre-payment
-    // In a real system, you might handle this as customer credit or require it to be fully allocated.
-    // For now, any unallocated amount will just reduce the customer's overall balance.
-
     // 4. Generate unique payment number
     const nextPaymentNumber = await generateNextPaymentNumber();
 
@@ -183,7 +184,7 @@ export async function POST(request: Request) {
         data: {
           paymentNumber: nextPaymentNumber,
           customerId,
-          amount: parsedAmount, // Total payment amount received
+          amount: parsedAmount,
           paymentDate: paymentDate ? new Date(paymentDate) : new Date(),
           notes,
         },
@@ -212,8 +213,6 @@ export async function POST(request: Request) {
       }
 
       // 5.3. Update the customer's overall balance
-      // Decrement customer balance by the total amount of this payment
-      // This correctly reflects the customer owing less, even if partially unallocated
       await prisma.customer.update({
         where: { id: customerId },
         data: {
@@ -223,12 +222,13 @@ export async function POST(request: Request) {
         },
       });
 
-      return payment; // Return the created payment object
+      return payment;
     });
 
     return NextResponse.json(result, { status: 201 });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error creating payment:', error);
-    return NextResponse.json({ error: 'Failed to create payment', details: error.message || 'Unknown error' }, { status: 500 });
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ error: 'Failed to create payment', details: errorMessage }, { status: 500 });
   }
 }

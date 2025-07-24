@@ -3,25 +3,6 @@ import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { InvoiceStatus } from '@prisma/client';
 
-// Helper function to generate the next payment number (not directly used in PUT but good to keep if needed)
-async function generateNextPaymentNumber() {
-  const lastPayment = await prisma.payment.findFirst({
-    orderBy: { createdAt: 'desc' },
-    select: { paymentNumber: true },
-  });
-
-  if (!lastPayment || !lastPayment.paymentNumber) {
-    return 'PAY1';
-  }
-
-  const match = lastPayment.paymentNumber.match(/^PAY(\d+)$/);
-  if (match) {
-    const lastNumber = parseInt(match[1], 10);
-    return `PAY${lastNumber + 1}`;
-  }
-  return 'PAY1'; // Fallback
-}
-
 export async function GET(request: Request, { params }: { params: { id: string } }) {
   try {
     const { id } = params;
@@ -41,9 +22,11 @@ export async function GET(request: Request, { params }: { params: { id: string }
       return NextResponse.json({ error: 'Payment not found' }, { status: 404 });
     }
     return NextResponse.json(payment);
-  } catch (error) {
+  } catch (error: unknown) { // ⭐ Use unknown for caught errors
     console.error(`Error fetching payment ${params.id}:`, error);
-    return NextResponse.json({ error: 'Failed to fetch payment' }, { status: 500 });
+    // Narrow down error type if specific properties are needed
+    const errorMessage = error instanceof Error ? error.message : 'Failed to fetch payment';
+    return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }
 
@@ -65,7 +48,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
           paymentAllocations: {
             include: {
               invoice: {
-                select: { id: true, paidAmount: true, balanceDue: true, netAmount: true, status: true } // Include netAmount
+                select: { id: true, paidAmount: true, balanceDue: true, netAmount: true, status: true }
               }
             }
           }
@@ -93,17 +76,17 @@ export async function PUT(request: Request, { params }: { params: { id: string }
 
       // Revert affected invoices' paidAmount, balanceDue, and status
       for (const oldAlloc of oldAllocations) {
-        const invoice = oldAlloc.invoice; // Use the included invoice directly
+        const invoice = oldAlloc.invoice;
         if (invoice) {
           const newPaidAmount = invoice.paidAmount - oldAlloc.allocatedAmount;
-          const newBalanceDue = invoice.balanceDue + oldAlloc.allocatedAmount; // Add back to balanceDue
+          const newBalanceDue = invoice.balanceDue + oldAlloc.allocatedAmount;
 
           let newStatus: InvoiceStatus;
           if (newBalanceDue <= 0) {
             newStatus = InvoiceStatus.PAID;
-          } else if (newPaidAmount > 0) { // If there's still some payment
+          } else if (newPaidAmount > 0) {
             newStatus = InvoiceStatus.PARTIAL;
-          } else { // No payment left
+          } else {
             newStatus = InvoiceStatus.PENDING;
           }
 
@@ -111,7 +94,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
             where: { id: invoice.id },
             data: {
               paidAmount: newPaidAmount,
-              balanceDue: newBalanceDue, // Update balanceDue
+              balanceDue: newBalanceDue,
               status: newStatus,
             },
           });
@@ -143,26 +126,25 @@ export async function PUT(request: Request, { params }: { params: { id: string }
           status: {
             in: [InvoiceStatus.PENDING, InvoiceStatus.PARTIAL],
           },
-          balanceDue: { gt: 0 }, // Only invoices with outstanding balance
+          balanceDue: { gt: 0 },
         },
         orderBy: {
           invoiceDate: 'asc',
         },
         select: {
           id: true,
-          netAmount: true, // Crucial: Use netAmount for calculation
+          netAmount: true,
           paidAmount: true,
-          balanceDue: true, // Crucial: Use current balanceDue
+          balanceDue: true,
         },
       });
 
       for (const invoice of outstandingInvoices) {
         if (remainingPaymentAmount <= 0) break;
 
-        // Use invoice.balanceDue directly for amount remaining on invoice
         const amountDueOnInvoice = invoice.balanceDue;
 
-        if (amountDueOnInvoice <= 0) continue; // Skip if already fully paid or negative balance
+        if (amountDueOnInvoice <= 0) continue;
 
         const amountToApplyToThisInvoice = Math.min(remainingPaymentAmount, amountDueOnInvoice);
 
@@ -173,10 +155,10 @@ export async function PUT(request: Request, { params }: { params: { id: string }
         });
 
         const newPaidAmountForInvoice = invoice.paidAmount + amountToApplyToThisInvoice;
-        const newBalanceDueForInvoice = invoice.balanceDue - amountToApplyToThisInvoice; // Subtract from balanceDue
+        const newBalanceDueForInvoice = invoice.balanceDue - amountToApplyToThisInvoice;
 
         let newStatus: InvoiceStatus;
-        if (newBalanceDueForInvoice <= 0) { // Check against the new balanceDue
+        if (newBalanceDueForInvoice <= 0) {
           newStatus = InvoiceStatus.PAID;
         } else if (newPaidAmountForInvoice > 0) {
           newStatus = InvoiceStatus.PARTIAL;
@@ -188,7 +170,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
           where: { id: invoice.id },
           data: {
             paidAmount: newPaidAmountForInvoice,
-            balanceDue: newBalanceDueForInvoice, // Update balanceDue
+            balanceDue: newBalanceDueForInvoice,
             status: newStatus,
           },
         });
@@ -204,8 +186,6 @@ export async function PUT(request: Request, { params }: { params: { id: string }
       }
 
       // 6. Update customer's balance with the new total payment amount
-      // The old amount was already added back in step 2.
-      // Now subtract the new amount.
       await prisma.customer.update({
         where: { id: customerId },
         data: {
@@ -219,9 +199,10 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     });
 
     return NextResponse.json(updatedPayment);
-  } catch (error: any) {
+  } catch (error: unknown) { // ⭐ Use unknown for caught errors
     console.error(`Error updating payment ${params.id}:`, error);
-    return NextResponse.json({ error: error.message || 'Failed to update payment' }, { status: 500 });
+    const errorMessage = error instanceof Error ? error.message : 'Failed to update payment';
+    return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }
 
@@ -238,7 +219,7 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
           paymentAllocations: {
             include: {
               invoice: {
-                select: { id: true, paidAmount: true, balanceDue: true, status: true } // Include balanceDue
+                select: { id: true, paidAmount: true, balanceDue: true, status: true }
               }
             }
           }
@@ -265,13 +246,13 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
 
       // 3. Reverse the effect on associated invoices' paidAmount and status
       for (const alloc of allocations) {
-        const invoice = alloc.invoice; // Use the included invoice directly
+        const invoice = alloc.invoice;
         if (invoice) {
           const newPaidAmount = invoice.paidAmount - alloc.allocatedAmount;
-          const newBalanceDue = invoice.balanceDue + alloc.allocatedAmount; // Add back to balanceDue
+          const newBalanceDue = invoice.balanceDue + alloc.allocatedAmount;
 
           let newStatus: InvoiceStatus;
-          if (newBalanceDue <= 0) { // Check against newBalanceDue
+          if (newBalanceDue <= 0) {
             newStatus = InvoiceStatus.PAID;
           } else if (newPaidAmount > 0) {
             newStatus = InvoiceStatus.PARTIAL;
@@ -283,7 +264,7 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
             where: { id: alloc.invoiceId },
             data: {
               paidAmount: newPaidAmount,
-              balanceDue: newBalanceDue, // Update balanceDue
+              balanceDue: newBalanceDue,
               status: newStatus,
             },
           });
@@ -302,8 +283,9 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
     });
 
     return NextResponse.json({ message: 'Payment deleted successfully' }, { status: 200 });
-  } catch (error: any) {
+  } catch (error: unknown) { // ⭐ Use unknown for caught errors
     console.error(`Error deleting payment ${params.id}:`, error);
-    return NextResponse.json({ error: error.message || 'Failed to delete payment' }, { status: 500 });
+    const errorMessage = error instanceof Error ? error.message : 'Failed to delete payment';
+    return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }

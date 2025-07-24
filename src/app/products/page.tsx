@@ -1,6 +1,6 @@
 // src/app/products/page.tsx
 'use client';
-import { useState, useEffect, useCallback } from 'react'; // Import useCallback
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useDebounce } from '@/lib/useDebounce';
 import { Input } from '@/components/ui/input';
@@ -22,7 +22,7 @@ import {
   PaginationLink,
   PaginationNext,
   PaginationPrevious,
-  // Removed PaginationEllipsis as it's not used
+  PaginationEllipsis // ⭐ Re-added PaginationEllipsis import
 } from '@/components/ui/pagination';
 
 interface Product {
@@ -53,7 +53,6 @@ export default function ProductsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const debouncedSearchTerm = useDebounce(searchTerm, 500);
 
-  // Memoize fetchProducts using useCallback to prevent re-creation on every render
   const fetchProducts = useCallback(async (page = 1, search = '') => {
     setIsLoading(true);
     try {
@@ -76,11 +75,11 @@ export default function ProductsPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [pagination.limit]); // Dependency on pagination.limit is necessary
+  }, [pagination.limit]);
 
   useEffect(() => {
     fetchProducts(1, debouncedSearchTerm);
-  }, [debouncedSearchTerm, fetchProducts]); // Added fetchProducts to dependencies
+  }, [debouncedSearchTerm, fetchProducts]);
 
   const handlePageChange = (page: number) => {
     if (page >= 1 && page <= pagination.totalPages) {
@@ -101,6 +100,8 @@ export default function ProductsPage() {
 
       // Re-fetch if the current page becomes empty after deletion and it's not the first page
       if (newTotal > 0 && products.length === 1 && prev.currentPage > 1) {
+        // We call fetchProducts to get the data for the newCurrentPage
+        // and ensure the UI reflects the correct state.
         fetchProducts(newCurrentPage, debouncedSearchTerm);
       } else if (newTotal === 0) { // If all items are deleted
         setProducts([]); // Ensure products array is empty
@@ -114,20 +115,20 @@ export default function ProductsPage() {
     });
   };
 
-
-  const renderPageNumbers = () => {
+  const renderPageNumbers = useCallback(() => { // ⭐ Wrap in useCallback
     const pages = [];
-    const maxVisible = 5;
-    let start = Math.max(1, pagination.currentPage - Math.floor(maxVisible / 2)); // Calculate start more dynamically
-    let end = Math.min(pagination.totalPages, start + maxVisible - 1);
+    const maxVisible = 5; // Max number of page buttons to show
+    let startPage = Math.max(1, pagination.currentPage - Math.floor(maxVisible / 2));
+    let endPage = Math.min(pagination.totalPages, startPage + maxVisible - 1);
 
-    // Adjust start if end is limited by totalPages
-    if (end - start + 1 < maxVisible && pagination.totalPages > maxVisible) {
-      start = Math.max(1, pagination.totalPages - maxVisible + 1);
+    // Adjust startPage if endPage is at totalPages but we haven't shown maxVisible pages
+    if (endPage - startPage + 1 < maxVisible && pagination.totalPages > maxVisible) {
+      startPage = Math.max(1, pagination.totalPages - maxVisible + 1);
+      endPage = pagination.totalPages; // Ensure endPage is correctly set to totalPages
     }
 
-    // Add ellipsis if needed
-    if (start > 1) {
+    // Add ellipsis at the beginning if needed
+    if (startPage > 1) {
       pages.push(
         <PaginationItem key="start-ellipsis">
           <PaginationEllipsis />
@@ -135,7 +136,7 @@ export default function ProductsPage() {
       );
     }
 
-    for (let i = start; i <= end; i++) {
+    for (let i = startPage; i <= endPage; i++) {
       pages.push(
         <PaginationItem key={i}>
           <PaginationLink
@@ -149,7 +150,8 @@ export default function ProductsPage() {
       );
     }
 
-    if (end < pagination.totalPages) {
+    // Add ellipsis at the end if needed
+    if (endPage < pagination.totalPages) {
       pages.push(
         <PaginationItem key="end-ellipsis">
           <PaginationEllipsis />
@@ -158,7 +160,8 @@ export default function ProductsPage() {
     }
 
     return pages;
-  };
+  }, [pagination.currentPage, pagination.totalPages, handlePageChange]); // ⭐ Dependencies for useCallback
+
 
   return (
     <div className="container mx-auto py-10">

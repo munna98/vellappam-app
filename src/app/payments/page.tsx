@@ -1,9 +1,9 @@
 // src/app/payments/page.tsx
-'use client'; // ⭐ Make this a client component
+'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react'; // ⭐ Import useCallback
 import Link from 'next/link';
-import { useDebounce } from '@/lib/useDebounce'; // Assuming this utility exists
+import { useDebounce } from '@/lib/useDebounce';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import {
@@ -14,7 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { PlusCircle, Edit, Trash2 } from 'lucide-react';
+import { PlusCircle, Edit } from 'lucide-react'; // ⭐ Removed Trash2
 import { format } from 'date-fns';
 import { DeletePaymentButton } from './_components/delete-payment-button';
 import {
@@ -70,22 +70,23 @@ export default function PaymentsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const debouncedSearchTerm = useDebounce(searchTerm, 500);
 
-  const fetchPayments = async (page = 1, query = '') => {
+  // ⭐ FIX: Wrap fetchPayments in useCallback
+  const fetchPayments = useCallback(async (page = 1, query = '') => {
     setIsLoading(true);
     try {
       const params = new URLSearchParams({
         page: page.toString(),
         limit: pagination.limit.toString(),
-        orderBy: 'createdAt', // Default sort by createdAt
-        direction: 'desc',     // Default to descending (latest first)
-        ...(query && { query }), // Add search query if it exists
+        orderBy: 'createdAt',
+        direction: 'desc',
+        ...(query && { query }),
       }).toString();
 
       const response = await fetch(`/api/payments?${params}`);
       const data = await response.json();
 
       if (response.ok) {
-        setPayments(data.data); // ⭐ Access data.data
+        setPayments(data.data);
         setPagination(data.pagination);
       } else {
         console.error('Failed to fetch payments:', data.error);
@@ -99,29 +100,33 @@ export default function PaymentsPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [pagination.limit]); // ⭐ Add pagination.limit to dependencies
 
   useEffect(() => {
-    fetchPayments(1, debouncedSearchTerm);
-  }, [debouncedSearchTerm]);
+    fetchPayments(pagination.currentPage, debouncedSearchTerm); // ⭐ Pass current page
+  }, [debouncedSearchTerm, fetchPayments, pagination.currentPage]); // ⭐ Add fetchPayments and pagination.currentPage to dependencies
 
   const handlePageChange = (page: number) => {
     if (page >= 1 && page <= pagination.totalPages) {
+      // No need to update pagination.currentPage directly here,
+      // fetchPayments will update it when data is fetched.
       fetchPayments(page, debouncedSearchTerm);
     }
   };
 
   // Function to handle deletion, re-fetch data to reflect changes
   const handleDelete = () => {
-    // A simple refresh after delete is often sufficient for pagination.
-    // Or you can recalculate if it's the last item on a page.
-    fetchPayments(pagination.currentPage, debouncedSearchTerm); 
+    fetchPayments(pagination.currentPage, debouncedSearchTerm);
   };
 
   const renderPageNumbers = () => {
     const pages = [];
     const maxVisible = 5;
     let start = Math.max(1, pagination.currentPage - Math.floor(maxVisible / 2));
+    // ⭐ FIX: Use const for 'end' if it's not reassigned. It is reassigned, so 'let' is correct.
+    // The previous error was a linter suggestion "prefer-const", which is often overridden when a variable needs reassignment.
+    // However, if you *can* make it const, it's better. In this specific case, it gets reassigned.
+    // So, we'll keep `let` for `end` and ensure `start` is also `let` because it might be adjusted.
     let end = Math.min(pagination.totalPages, start + maxVisible - 1);
 
     // Adjust start if end is limited by totalPages
@@ -203,7 +208,7 @@ export default function PaymentsPage() {
                     <TableCell className="text-right">₹{payment.amount.toFixed(2)}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {payment.allocatedTo && payment.allocatedTo.length > 0 ? (
-                        payment.allocatedTo.map((alloc: AllocatedInvoiceDisplay) => ( // ⭐ Typed alloc
+                        payment.allocatedTo.map((alloc: AllocatedInvoiceDisplay) => (
                           <div key={alloc.invoiceId}>
                             {alloc.invoiceNumber} (₹{alloc.allocatedAmount.toFixed(2)})
                           </div>

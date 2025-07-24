@@ -29,9 +29,9 @@ export default function CreatePaymentPage() {
         if (!customersRes.ok) {
           throw new Error('Failed to fetch customers.');
         }
-        // ⭐ FIX: Assume /api/customers returns { data: Customer[] }
+        // FIX: Assume /api/customers returns { data: Customer[] }
         const customersResponse = await customersRes.json();
-        setCustomers(Array.isArray(customersResponse.data) ? customersResponse.data : []); // Ensure it's an array
+        setCustomers(Array.isArray(customersResponse.data) ? customersResponse.data : []);
 
         // Fetch next payment number from the new API endpoint
         const paymentNumRes = await fetch('/api/payments/next-number');
@@ -45,8 +45,7 @@ export default function CreatePaymentPage() {
         console.error('Error fetching initial data for payments:', error);
         toast.error('Failed to load customers or payment number.');
         setNextPaymentNum('Error loading number');
-        setCustomers([]); // Ensure customers is reset to an empty array on error
-        // Removed: setInvoiceNumberDisplay and setProducts as they don't belong here
+        setCustomers([]);
       }
     };
     fetchData();
@@ -76,15 +75,17 @@ export default function CreatePaymentPage() {
 
       if (!response.ok) {
         const errorData = await response.json();
+        // FIX: Type 'error' properly
         throw new Error(errorData.error || 'Failed to save payment');
       }
 
       toast.success('Payment recorded successfully!');
       router.push('/payments');
       router.refresh();
-    } catch (error: any) {
+    } catch (error: unknown) { // ⭐ FIX: Use unknown and then narrow the type
       console.error(error);
-      toast.error(error.message || 'Error saving payment.');
+      const errorMessage = error instanceof Error ? error.message : 'Error saving payment.';
+      toast.error(errorMessage);
     }
   };
 
@@ -143,7 +144,7 @@ export default function CreatePaymentPage() {
               <div className="space-y-2">
                 <Label htmlFor="customer">Select Customer</Label>
                 <Combobox
-                  items={customers} // Now 'customers' will always be an array
+                  items={customers}
                   value={selectedCustomer?.id || null}
                   onSelect={(id) =>
                     setSelectedCustomer(customers.find((c) => c.id === id) || null)

@@ -3,7 +3,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Trash2 } from 'lucide-react';
+import { Trash2 } from 'lucide-react'; // ⭐ Trash2 is correctly used here. No change needed.
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog,
@@ -21,7 +21,7 @@ import { toast } from 'sonner';
 interface DeletePaymentButtonProps {
   paymentId: string;
   paymentNumber: string;
-  onDelete?: () => void; // ⭐ Added optional onDelete prop
+  onDelete?: () => void;
 }
 
 export function DeletePaymentButton({ paymentId, paymentNumber, onDelete }: DeletePaymentButtonProps) {
@@ -42,13 +42,14 @@ export function DeletePaymentButton({ paymentId, paymentNumber, onDelete }: Dele
 
       toast.success(`Payment "${paymentNumber}" deleted successfully!`);
       if (onDelete) {
-        onDelete(); // ⭐ Call onDelete callback
+        onDelete();
       } else {
-        router.refresh(); // Fallback to router.refresh if no specific onDelete handler
+        router.refresh();
       }
-    } catch (error: any) {
+    } catch (error: unknown) { // ⭐ Use unknown for caught errors
       console.error('Error deleting payment:', error);
-      toast.error(error.message || 'Error deleting payment.');
+      const errorMessage = error instanceof Error ? error.message : 'Error deleting payment.';
+      toast.error(errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -65,8 +66,8 @@ export function DeletePaymentButton({ paymentId, paymentNumber, onDelete }: Dele
         <AlertDialogHeader>
           <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
           <AlertDialogDescription>
-            This action cannot be undone. This will permanently delete payment{' '}
-            <span className="font-semibold">{paymentNumber}</span>, revert its allocations to invoices, and adjust the customer balance.
+            This action cannot be undone. This will permanently delete payment
+            <span className="font-semibold"> {paymentNumber}</span>, revert its allocations to invoices, and adjust the customer balance.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
