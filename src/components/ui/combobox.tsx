@@ -19,7 +19,6 @@ interface ComboboxProps<T> {
   formatItemLabel?: (item: T) => string;
 }
 
-// ⭐ FIX: Changed 'any' to 'unknown' and removed unused 'index'
 export function Combobox<T extends { [key: string]: unknown }>({
   id,
   items,
@@ -60,7 +59,7 @@ export function Combobox<T extends { [key: string]: unknown }>({
           <CommandList>
             <CommandEmpty>{emptyMessage}</CommandEmpty>
             <CommandGroup>
-              {items.map((item, _index) => { // ⭐ FIX: Changed index to _index as it's unused
+              {items.map((item) => { // ⭐ FIX: Removed _index completely as it's not used
                 const itemValue = String(item[valueKey]);
                 const itemDisplay = formatItemLabel ? formatItemLabel(item) : String(item[displayKey]);
 

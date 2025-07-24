@@ -1,8 +1,8 @@
 // src/types/index.ts
+/* eslint-disable @typescript-eslint/no-unused-vars */ // ⭐ Added to ignore unused variables for type definitions
 
 import {
-  Prisma, // ⭐ Import Prisma for Prisma.validator
-  // CompanyInfo, // Only keep if actually used elsewhere in the file
+  Prisma,
 } from '@prisma/client';
 
 // Extends the base Prisma Payment type to include its relations

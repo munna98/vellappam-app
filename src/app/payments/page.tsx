@@ -104,15 +104,13 @@ export default function PaymentsPage() {
     fetchPayments(pagination.currentPage, debouncedSearchTerm);
   }, [debouncedSearchTerm, fetchPayments, pagination.currentPage]);
 
-  // ⭐ FIX: Wrap handlePageChange in useCallback
   const handlePageChange = useCallback((page: number) => {
     if (page >= 1 && page <= pagination.totalPages) {
       fetchPayments(page, debouncedSearchTerm);
     }
-  }, [pagination.totalPages, fetchPayments, debouncedSearchTerm]); // Add dependencies
+  }, [pagination.totalPages, fetchPayments, debouncedSearchTerm]);
 
-  // Function to handle deletion, re-fetch data to reflect changes
-  const handleDelete = useCallback(() => { // ⭐ Wrap handleDelete in useCallback
+  const handleDelete = useCallback(() => {
     fetchPayments(pagination.currentPage, debouncedSearchTerm);
   }, [fetchPayments, pagination.currentPage, debouncedSearchTerm]);
 
@@ -120,13 +118,21 @@ export default function PaymentsPage() {
   const renderPageNumbers = () => {
     const pages = [];
     const maxVisible = 5;
-    let start = Math.max(1, pagination.currentPage - Math.floor(maxVisible / 2));
-    let end = Math.min(pagination.totalPages, start + maxVisible - 1);
 
-    // Adjust start if end is limited by totalPages
-    if (end - start + 1 < maxVisible && pagination.totalPages > maxVisible) {
-      start = Math.max(1, pagination.totalPages - maxVisible + 1);
+    // ⭐ FIX: Re-structured to avoid linter warning for 'end'
+    // Calculate a potential start page
+    let tempStart = Math.max(1, pagination.currentPage - Math.floor(maxVisible / 2));
+    // Calculate a potential end page
+    let tempEnd = Math.min(pagination.totalPages, tempStart + maxVisible - 1);
+
+    // Adjust start if the end page is capped by totalPages and we haven't shown maxVisible pages
+    if (tempEnd - tempStart + 1 < maxVisible && pagination.totalPages > maxVisible) {
+      tempStart = Math.max(1, pagination.totalPages - maxVisible + 1);
     }
+
+    // Now, declare with const as they are assigned once after calculation
+    const start = tempStart;
+    const end = tempEnd;
 
     for (let i = start; i <= end; i++) {
       pages.push(
