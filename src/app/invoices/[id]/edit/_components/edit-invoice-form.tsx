@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { Plus, X } from 'lucide-react';
-import { Customer, Product, CompanyInfo } from '@prisma/client';
+import { Customer, Product, CompanyInfo } from '@prisma/client'; // Keep Prisma client types
 import { Combobox } from '@/components/ui/combobox';
 import {
   Table,
@@ -24,20 +24,24 @@ import { Checkbox } from '@/components/ui/checkbox';
 
 import { printReactComponent } from '@/lib/print-utils';
 import InvoicePrintTemplate from '@/components/invoice-print-template';
-// ⭐ IMPORT: Import FullInvoice and FullInvoiceItem from your central types file
+// ⭐ FIX: Import FullInvoice and FullInvoiceItem from your central types file
+import { FullInvoice, FullInvoiceItem } from '@/types';
+
 
 // Define FormInvoiceItem for internal state, mapping from FullInvoiceItem
+// It includes client-side specific fields like productName, productCode for display.
 interface FormInvoiceItem {
   id: string; // Unique ID for React list key (can be existing item's ID or a new UUID for new items)
   productId: string;
-  productName: string;
-  productCode: string;
+  productName: string; // For display, not sent to API
+  productCode: string; // For display, not sent to API
   quantity: number;
   unitPrice: number;
   total: number;
 }
 
-export type CompanyInfo = CompanyInfo;
+// CompanyInfo is already imported from @prisma/client, no need to redefine
+// export type CompanyInfo = CompanyInfo; // This line is redundant
 
 interface EditInvoiceFormProps {
   initialInvoice: FullInvoice;
@@ -113,9 +117,9 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
         const calculatedBalanceBeforeThisInvoice = customerActualCurrentBalance - initialInvoice.balanceDue;
         setCustomerBalanceBeforeThisInvoice(calculatedBalanceBeforeThisInvoice);
 
-      } catch (error) {
+      } catch (error: unknown) { // ⭐ FIX: Type 'error' as unknown
         console.error('Error fetching initial data:', error);
-        toast.error('Failed to load initial data.');
+        toast.error(error instanceof Error ? error.message : 'Failed to load initial data.'); // ⭐ FIX: Narrow error type
         setCustomers([]);
         setProducts([]);
       }
@@ -138,8 +142,8 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
   // --- Handlers for existing invoice items (in the table) ---
   const handleItemUpdate = (
     itemId: string,
-    field: keyof FormInvoiceItem,
-    value: any
+    field: 'quantity' | 'unitPrice', // ⭐ FIX: Explicitly type 'field'
+    value: number // ⭐ FIX: Explicitly type 'value'
   ) => {
     setItems((prevItems) =>
       prevItems.map((item) => {
@@ -249,12 +253,17 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
           invoiceDate,
           // Only send necessary fields to the backend for items.
           // The backend handles the creation/update/deletion based on `id` presence.
-          items: items.map(({ id, productName, productCode, ...rest }) => ({
-            ...rest,
-            // Only include 'id' if it's an existing item (i.e., not a newly added one)
-            // This is how your backend distinguishes between update and create.
-            id: initialInvoice.items.some(initialItem => initialItem.id === id) ? id : undefined,
-          })),
+          items: items.map((item) => {
+            // ⭐ FIX: Remove productName and productCode from destructuring if not used
+            // This also resolves the 'defined but never used' error.
+            const { id, productName, productCode, ...rest } = item;
+            return {
+              ...rest,
+              // Only include 'id' if it's an existing item (i.e., not a newly added one)
+              // This is how your backend distinguishes between update and create.
+              id: initialInvoice.items.some(initialItem => initialItem.id === id) ? id : undefined,
+            };
+          }),
           notes,
           totalAmount: subtotal,
           discountAmount,
@@ -287,9 +296,9 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
 
       router.push('/invoices');
       router.refresh();
-    } catch (error: any) {
+    } catch (error: unknown) { // ⭐ FIX: Type 'error' as unknown
       console.error(error);
-      toast.error(error.message || 'Error updating invoice.');
+      toast.error(error instanceof Error ? error.message : 'Error updating invoice.'); // ⭐ FIX: Narrow error type
     }
   };
 
@@ -324,7 +333,7 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
               <div className="space-y-2">
                 <Label htmlFor="customer">Select Customer</Label>
                 <Combobox
-                  id="customer" // ⭐ FIX: Pass the 'id' prop here
+                  id="customer" // ⭐ FIX: Pass the 'id' prop here (if your Combobox component expects it)
                   items={customers}
                   value={selectedCustomer?.id || null}
                   onSelect={(id) =>
@@ -420,7 +429,7 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
               <div className="flex-1 min-w-[200px] sm:min-w-[250px] md:min-w-[300px] space-y-2">
                 <Label htmlFor="productToAdd">Add New Product</Label>
                 <Combobox
-                  id="productToAdd" // ⭐ FIX: Pass the 'id' prop here
+                  id="productToAdd" // ⭐ FIX: Pass the 'id' prop here (if your Combobox component expects it)
                   items={products}
                   value={selectedProductToAdd}
                   onSelect={setSelectedProductToAdd}

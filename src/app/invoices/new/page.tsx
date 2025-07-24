@@ -277,7 +277,7 @@ useEffect(() => {
           setCompanyInfo(updatedCompanyInfo);
           setShouldPrint(updatedCompanyInfo.defaultPrintOnSave ?? true);
       }
-
+ 
       const lastInvoiceRes = await fetch('/api/invoices?orderBy=createdAt&direction=desc&limit=1');
       const lastInvoices = await lastInvoiceRes.json();
       const lastInvNumber = lastInvoices.data.length > 0 ? lastInvoices.data[0].invoiceNumber : null;
@@ -285,9 +285,10 @@ useEffect(() => {
 
       router.push('/invoices');
       router.refresh();
-    } catch (error: any) {
-      console.error(error);
-      toast.error(error.message || 'Error saving invoice.');
+    } catch (error: unknown) {
+     console.error(error);
+      const errorMessage = error instanceof Error ? error.message : 'Error saving invoice.';
+      toast.error(errorMessage);
     }
   };
 

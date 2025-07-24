@@ -1,10 +1,11 @@
 // src/app/api/invoices/[id]/route.ts
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-import { InvoiceStatus } from '@prisma/client';
+import { InvoiceStatus, Prisma } from '@prisma/client'; // Import Prisma namespace for transaction client type
 
 // Helper function to generate the next payment number within a transaction
-async function generateNextPaymentNumber(tx: any): Promise<string> {
+// ⭐ FIX: Type 'tx' explicitly as Prisma.TransactionClient
+async function generateNextPaymentNumber(tx: Prisma.TransactionClient): Promise<string> {
   const lastPayment = await tx.payment.findFirst({
     orderBy: { createdAt: 'desc' },
     select: { paymentNumber: true },
@@ -26,10 +27,10 @@ export async function PUT(request: Request, { params }: { params: { id: string }
   try {
     const invoiceId = params.id;
     const {
-      customerId, // Customer ID (should typically not change for an existing invoice)
+      customerId,
       invoiceDate,
       items, // Updated list of invoice items
-      totalAmount, // New subtotal
+      totalAmount,
       discountAmount,
       paidAmount, // New total paid amount for this invoice
       notes,
@@ -43,6 +44,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     }
 
     // Start a Prisma transaction for atomicity
+    // ⭐ FIX: Type 'tx' implicitly from Prisma.$transaction callback, no need for 'any'
     const updatedInvoice = await prisma.$transaction(async (tx) => {
       // 1. Fetch the existing invoice and its customer with necessary details
       const existingInvoice = await tx.invoice.findUnique({
@@ -68,7 +70,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
 
       // Determine new invoice status
       let newStatus: InvoiceStatus;
-      if (newInvoiceBalanceDue <= 0) {
+      if (newInvoiceBalanceDue <= 0.001) { // Use epsilon for floating point comparison
         newStatus = InvoiceStatus.PAID;
       } else if ((paidAmount || 0) > 0) {
         newStatus = InvoiceStatus.PARTIAL;
@@ -90,7 +92,8 @@ export async function PUT(request: Request, { params }: { params: { id: string }
 
       // 3. Sync invoice items (delete old, create new, update existing)
       const existingItemIds = new Set(existingInvoice.items.map(item => item.id));
-      const incomingItemIds = new Set(items.map((item: any) => item.id).filter(Boolean)); // Filter out null/undefined for new items
+      // ⭐ FIX: Type 'item' in filter for incomingItemIds
+      const incomingItemIds = new Set(items.map((item: { id?: string }) => item.id).filter(Boolean)); // Filter out null/undefined for new items
 
       // Items to delete (present in existing but not in incoming items)
       const itemsToDelete = existingInvoice.items.filter(item => !incomingItemIds.has(item.id));
@@ -103,7 +106,8 @@ export async function PUT(request: Request, { params }: { params: { id: string }
       }
 
       // Items to create or update
-      for (const item of items) {
+      // ⭐ FIX: Type 'item' in the loop
+      for (const item of items as { id?: string; productId: string; quantity: number; unitPrice: number; total: number }[]) {
         const data = {
           productId: item.productId,
           quantity: item.quantity,
@@ -180,16 +184,16 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     });
 
     return NextResponse.json(updatedInvoice);
-  } catch (error) {
+  } catch (error: unknown) { // ⭐ FIX: Use 'unknown' for caught error
     console.error('Error updating invoice:', error);
     return NextResponse.json(
-      { error: 'Failed to update invoice', details: (error as Error).message },
+      { error: 'Failed to update invoice', details: (error instanceof Error ? error.message : 'Unknown error') }, // ⭐ FIX: Narrow error type
       { status: 500 }
     );
   }
 }
 
-// DELETE /api/invoices/[id] - Delete a payment (No changes needed for logic)
+// DELETE /api/invoices/[id] - Delete an invoice
 export async function DELETE(request: Request, { params }: { params: { id: string } }) {
   const invoiceId = params.id;
   try {
@@ -198,8 +202,8 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
       where: { id: invoiceId },
       select: {
         customerId: true,
-        netAmount: true, // The original total value of the invoice
-        balanceDue: true, // Need this to reverse its impact on customer balance
+        netAmount: true,
+        balanceDue: true,
       },
     });
 
@@ -207,23 +211,15 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
       return NextResponse.json({ error: 'Invoice not found' }, { status: 404 });
     }
 
-    await prisma.$transaction(async (prisma) => {
+    // ⭐ FIX: Type 'prisma' within transaction callback as Prisma.TransactionClient
+    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       // 1.1. Delete associated PaymentAllocations first
-      // This is crucial. When these allocations are deleted, the amounts they represented
-      // are effectively "freed up" on their original Payment records.
-      // These freed amounts will then contribute to the Payment's unallocated balance,
-      // which in turn will correctly impact the customer's overall balance
-      // (making it more negative, or reducing outstanding debt on other invoices).
-      await prisma.paymentAllocation.deleteMany({
+      await tx.paymentAllocation.deleteMany({
         where: { invoiceId: invoiceId },
       });
 
       // 1.2. Adjust customer balance
-      // When an invoice is deleted, its balanceDue is removed from the customer's total outstanding balance.
-      // So, the customer's balance should be DECREMENTED by this invoice's balanceDue.
-      // Any payments made (which are still in the system) will then implicitly cause a credit
-      // for the customer if they no longer cover an existing debt.
-      await prisma.customer.update({
+      await tx.customer.update({
         where: { id: invoiceToDelete.customerId },
         data: {
           balance: {
@@ -233,19 +229,19 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
       });
 
       // 1.3. Delete associated InvoiceItems
-      await prisma.invoiceItem.deleteMany({
+      await tx.invoiceItem.deleteMany({
         where: { invoiceId: invoiceId },
       });
 
       // 1.4. Delete the Invoice itself
-      await prisma.invoice.delete({
+      await tx.invoice.delete({
         where: { id: invoiceId },
       });
     });
 
     return NextResponse.json({ message: 'Invoice deleted successfully' }, { status: 200 });
-  } catch (error: any) {
+  } catch (error: unknown) { // ⭐ FIX: Use 'unknown' for caught error
     console.error(`Error deleting invoice ${invoiceId}:`, error);
-    return NextResponse.json({ error: 'Failed to delete invoice', details: error.message || 'Unknown error' }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to delete invoice', details: (error instanceof Error ? error.message : 'Unknown error') }, { status: 500 }); // ⭐ FIX: Narrow error type
   }
 }

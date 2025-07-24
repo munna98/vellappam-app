@@ -3,7 +3,7 @@ import { Suspense } from 'react';
 import prisma from '@/lib/prisma';
 import { EditInvoiceForm } from './_components/edit-invoice-form';
 import { Prisma } from '@prisma/client';
-import { FullInvoice } from '@/types';
+// import { FullInvoice } from '@/types'; // This import might be redundant if PrismaFullInvoice is sufficient
 
 interface EditInvoicePageProps {
   params: {
@@ -11,18 +11,20 @@ interface EditInvoicePageProps {
   };
 }
 
-const fullInvoiceWithRelations = Prisma.validator<Prisma.InvoiceDefaultArgs>()({
-  include: {
-    customer: true,
-    items: {
-      include: {
-        product: true,
-      },
-    },
-  },
-});
-
-type PrismaFullInvoice = Prisma.InvoiceGetPayload<typeof fullInvoiceWithRelations>;
+// ⭐ FIX: Remove the 'fullInvoiceWithRelations' constant if its only purpose is type inference
+// Instead, directly define the type based on Prisma.$Include or Prisma.Args
+type PrismaFullInvoice = Prisma.InvoiceGetPayload<
+  {
+    include: {
+      customer: true;
+      items: {
+        include: {
+          product: true;
+        };
+      };
+    };
+  }
+>;
 
 async function getInvoice(id: string): Promise<PrismaFullInvoice | null> {
   try {
@@ -41,7 +43,8 @@ async function getInvoice(id: string): Promise<PrismaFullInvoice | null> {
     console.log('Server: Fetched Invoice (before passing to client):', invoice);
     console.log('Server: Fetched Invoice Items (before passing to client):', invoice?.items);
 
-    return invoice as FullInvoice;
+    // Cast is fine here as Prisma.$include guarantees the shape
+    return invoice as PrismaFullInvoice;
   } catch (error) {
     console.error(`Error fetching invoice ${id} from database:`, error);
     return null;
@@ -52,7 +55,6 @@ export default async function EditInvoicePage({ params }: EditInvoicePageProps) 
   const invoice = await getInvoice(params.id);
 
   if (!invoice) {
-    // ... (rest of your invoice not found logic)
     return (
       <div className="container mx-auto py-10 text-center">
         <h1 className="text-3xl font-bold mb-4">Invoice Not Found</h1>
@@ -63,7 +65,6 @@ export default async function EditInvoicePage({ params }: EditInvoicePageProps) 
 
   // ⭐ DEBUG: Log the invoice just before rendering the client component
   console.log('Server: Invoice passed to EditInvoiceForm:', invoice);
-
 
   return (
     <div className="container mx-auto py-10 max-w-6xl">

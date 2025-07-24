@@ -1,23 +1,54 @@
 // src/types/index.ts
 
-import { Payment, Customer, Invoice, PaymentAllocation as PrismaPaymentAllocation, Product, InvoiceItem as PrismaInvoiceItem } from '@prisma/client';
+import {
+  Payment,
+  Customer,
+  Invoice,
+  PaymentAllocation as PrismaPaymentAllocation,
+  Product,
+  InvoiceItem as PrismaInvoiceItem,
+  Prisma, // ⭐ Import Prisma for Prisma.validator
+  CompanyInfo, // Assuming CompanyInfo is also a Prisma model
+} from '@prisma/client';
 
 // Extends the base Prisma Payment type to include its relations
-export interface FullPayment extends Payment {
-  customer: Customer;
-  paymentAllocations: (PrismaPaymentAllocation & { invoice: Invoice })[];
-}
+// Using Prisma.validator for robust type inference with relations
+const fullPaymentWithRelations = Prisma.validator<Prisma.PaymentDefaultArgs>()({
+  include: {
+    customer: true,
+    paymentAllocations: {
+      include: {
+        invoice: true,
+      },
+    },
+  },
+});
+export type FullPayment = Prisma.PaymentGetPayload<typeof fullPaymentWithRelations>;
+
 
 // Extends the base Prisma InvoiceItem type to include its product relation
-export interface FullInvoiceItem extends PrismaInvoiceItem {
-  product: Product;
-}
+// Using Prisma.validator for robust type inference with relations
+const fullInvoiceItemWithProduct = Prisma.validator<Prisma.InvoiceItemDefaultArgs>()({
+  include: {
+    product: true,
+  },
+});
+export type FullInvoiceItem = Prisma.InvoiceItemGetPayload<typeof fullInvoiceItemWithProduct>;
 
-// ⭐ New/Updated: Extends the base Prisma Invoice type to include its items and customer relations
-export interface FullInvoice extends Invoice {
-  customer: Customer;
-  items: FullInvoiceItem[];
-}
+
+// ⭐ Updated: Extends the base Prisma Invoice type to include its items and customer relations
+// Using Prisma.validator for robust type inference with relations
+const fullInvoiceWithRelations = Prisma.validator<Prisma.InvoiceDefaultArgs>()({
+  include: {
+    customer: true,
+    items: {
+      include: {
+        product: true, // This ensures that 'item.product' is available in FullInvoiceItem
+      },
+    },
+  },
+});
+export type FullInvoice = Prisma.InvoiceGetPayload<typeof fullInvoiceWithRelations>;
 
 
 // Type for displaying allocations in the frontend (no change needed here)

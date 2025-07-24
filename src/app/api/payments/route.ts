@@ -1,7 +1,7 @@
 // src/app/api/payments/route.ts
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-import { InvoiceStatus, Prisma } from '@prisma/client'; // ⭐ Import Prisma client types
+import { InvoiceStatus, Prisma } from '@prisma/client';
 
 // Helper function to generate the next payment number
 async function generateNextPaymentNumber() {
@@ -33,8 +33,6 @@ export async function GET(request: Request) {
   const skip = (page - 1) * limit;
 
   try {
-    // ⭐ Correctly type whereClause using Prisma.PaymentWhereInput
-    // This type understands nested relations like 'customer.name'
     const whereClause: Prisma.PaymentWhereInput = {};
 
     if (customerId) {
@@ -43,7 +41,6 @@ export async function GET(request: Request) {
     if (query) {
       whereClause.OR = [
         { paymentNumber: { contains: query, mode: 'insensitive' } },
-        // ⭐ This is now correctly typed due to Prisma.PaymentWhereInput
         { customer: { name: { contains: query, mode: 'insensitive' } } },
         { notes: { contains: query, mode: 'insensitive' } },
       ];
@@ -69,7 +66,6 @@ export async function GET(request: Request) {
             },
           },
         },
-        // ⭐ Use Prisma.SortOrder for direction for better type safety
         orderBy: {
           [orderBy]: direction as Prisma.SortOrder,
         },
@@ -124,19 +120,19 @@ export async function POST(request: Request) {
     const outstandingInvoices = await prisma.invoice.findMany({
       where: {
         customerId: customerId,
-        status: InvoiceStatus.PENDING,
-        balanceDue: { gt: 0 },
+        status: InvoiceStatus.PENDING, // Only consider pending invoices
+        balanceDue: { gt: 0 }, // Only consider invoices with a positive balance due
       },
       orderBy: {
-        invoiceDate: 'asc',
+        invoiceDate: 'asc', // First-In, First-Out (FIFO) allocation
       },
       select: {
         id: true,
         invoiceNumber: true,
         balanceDue: true,
         paidAmount: true,
-        totalAmount: true,
-        netAmount: true,
+        totalAmount: true, // Included for potential future display/reporting
+        netAmount: true,   // Included for potential future display/reporting
       },
     });
 
@@ -146,11 +142,11 @@ export async function POST(request: Request) {
 
     // 3. Allocate payment to invoices in FIFO order
     for (const invoice of outstandingInvoices) {
-      if (remainingPaymentAmount <= 0) break;
+      if (remainingPaymentAmount <= 0) break; // Stop if no more payment amount to allocate
 
       const amountToAllocate = Math.min(remainingPaymentAmount, invoice.balanceDue);
 
-      if (amountToAllocate > 0) {
+      if (amountToAllocate > 0) { // Ensure we are allocating a positive amount
         allocationsToCreate.push({
           invoiceId: invoice.id,
           allocatedAmount: amountToAllocate,
@@ -159,7 +155,7 @@ export async function POST(request: Request) {
         const newPaidAmount = invoice.paidAmount + amountToAllocate;
         const newBalanceDue = invoice.balanceDue - amountToAllocate;
         let newStatus: InvoiceStatus = InvoiceStatus.PENDING;
-        if (newBalanceDue <= 0) {
+        if (newBalanceDue <= 0.001) { // Use a small epsilon for floating point comparison
           newStatus = InvoiceStatus.PAID;
         }
 
@@ -217,7 +213,7 @@ export async function POST(request: Request) {
         where: { id: customerId },
         data: {
           balance: {
-            decrement: parsedAmount,
+            decrement: parsedAmount, // Decrement customer balance by the *total* payment amount
           },
         },
       });

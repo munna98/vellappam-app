@@ -2,7 +2,6 @@
 'use client';
 
 import { useState } from 'react';
-// import { useRouter } from 'next/navigation'; // No longer needed if using onDelete callback
 import { Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -14,7 +13,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger, 
+  AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 
@@ -25,7 +24,6 @@ interface DeleteInvoiceButtonProps {
 }
 
 export function DeleteInvoiceButton({ invoiceId, invoiceNumber, onDelete }: DeleteInvoiceButtonProps) {
-  // const router = useRouter(); // Removed
   const [isLoading, setIsLoading] = useState(false);
 
   const handleDelete = async () => {
@@ -37,17 +35,18 @@ export function DeleteInvoiceButton({ invoiceId, invoiceNumber, onDelete }: Dele
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to delete invoice');
+        // ⭐ FIX: Explicitly check if errorData.error is a string before using, otherwise provide fallback
+        throw new Error(typeof errorData.error === 'string' ? errorData.error : 'Failed to delete invoice');
       }
 
       toast.success(`Invoice "${invoiceNumber}" deleted successfully!`);
-      if (onDelete) { // Call the onDelete callback if provided
+      if (onDelete) {
         onDelete(invoiceId);
       }
-      // router.refresh(); // Removed: parent will handle state refresh via onDelete
-    } catch (error: any) {
+    } catch (error: unknown) { // ⭐ FIX: Use 'unknown' for caught error
       console.error('Error deleting invoice:', error);
-      toast.error(error.message || 'Error deleting invoice.');
+      // ⭐ FIX: Narrow error type and provide a more robust error message
+      toast.error((error instanceof Error ? error.message : 'An unknown error occurred during deletion.'));
     } finally {
       setIsLoading(false);
     }
