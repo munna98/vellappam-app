@@ -56,7 +56,7 @@ const InvoicePrintTemplate: React.FC<InvoicePrintTemplateProps> = ({
         <p className="text-sm">Invoice No: <span className="font-bold">{invoice.invoiceNumber}</span></p>
         <p className="text-sm">Date: {invoiceDate} {currentTime}</p>
         <p className="text-sm">Customer: <span className="font-bold">{invoice.customer.name}</span></p>
-        {invoice.customer.mobile && <p className="text-sm">Cust. Mob: {invoice.customer.mobile}</p>}
+        {invoice.customer.phone && <p className="text-sm">Cust. Mob: {invoice.customer.phone}</p>}
       </div>
 
       {/* Items Table */}
