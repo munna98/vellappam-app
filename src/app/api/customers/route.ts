@@ -1,7 +1,9 @@
 // src/app/api/customers/route.ts
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
-import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library'; // Import specific Prisma error type
+import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
+// ⭐ IMPORT Prisma type for CustomerWhereInput
+import { Prisma } from '@prisma/client'; 
 
 export async function GET(request: Request) {
   try {
@@ -11,10 +13,8 @@ export async function GET(request: Request) {
     const limit = parseInt(searchParams.get('limit') || '10', 10);
     const skip = (page - 1) * limit;
 
-    // ⭐ Type 'where' explicitly as Prisma.CustomerWhereInput or similar if available,
-    // or just let it be inferred if it's directly assigned to a Prisma query.
-    // For general purpose, 'Record<string, any>' is better than 'any' directly.
-    const where: { OR?: any[]; name?: { contains: string; mode: 'insensitive' }; code?: { contains: string; mode: 'insensitive' }; contactPerson?: { contains: string; mode: 'insensitive' }; phone?: { contains: string } } = {};
+    // ⭐ Use Prisma.CustomerWhereInput for type safety
+    const where: Prisma.CustomerWhereInput = {}; 
     
     if (search) {
       where.OR = [
@@ -55,7 +55,6 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    // Destructure properties from body, allowing TypeScript to infer types
     const { name, code, contactPerson, phone, address } = body;
 
     if (!name || !code) {
@@ -72,10 +71,10 @@ export async function POST(request: Request) {
       },
     });
     return NextResponse.json(newCustomer, { status: 201 });
-  } catch (error) { // ⭐ Changed 'error: any' to 'error' and then check its type
+  } catch (error) {
     console.error('Error creating customer:', error);
-    if (error instanceof PrismaClientKnownRequestError) { // ⭐ Use Prisma's specific error type
-      if (error.code === 'P2002') { // Unique constraint violation
+    if (error instanceof PrismaClientKnownRequestError) {
+      if (error.code === 'P2002') {
         if (error.meta?.target && Array.isArray(error.meta.target)) {
           if (error.meta.target.includes('phone')) {
             return NextResponse.json({ error: 'Phone number already exists.' }, { status: 409 });
