@@ -1,6 +1,7 @@
 // src/app/api/customers/[id]/route.ts
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library'; // Import specific Prisma error type
 
 // GET /api/customers/[id]
 export async function GET(request: Request, { params }: { params: { id: string } }) {
@@ -25,6 +26,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
   try {
     const { id } = params;
     const body = await request.json();
+    // Destructure properties from body, allowing TypeScript to infer types
     const { name, code, contactPerson, phone, address } = body;
 
     // Basic validation
@@ -43,13 +45,19 @@ export async function PUT(request: Request, { params }: { params: { id: string }
       },
     });
     return NextResponse.json(updatedCustomer);
-  } catch (error: any) {
+  } catch (error) { // ⭐ Changed 'error: any' to 'error' and then check its type
     console.error(`Error updating customer ${params.id}:`, error);
-    if (error.code === 'P2002' && error.meta?.target?.includes('phone')) {
-      return NextResponse.json({ error: 'Phone number already exists.' }, { status: 409 });
-    }
-    if (error.code === 'P2002' && error.meta?.target?.includes('code')) {
-      return NextResponse.json({ error: 'Customer code already exists.' }, { status: 409 });
+    if (error instanceof PrismaClientKnownRequestError) { // ⭐ Use Prisma's specific error type
+      if (error.code === 'P2002') { // Unique constraint violation
+        if (error.meta?.target && Array.isArray(error.meta.target)) {
+          if (error.meta.target.includes('phone')) {
+            return NextResponse.json({ error: 'Phone number already exists.' }, { status: 409 });
+          }
+          if (error.meta.target.includes('code')) {
+            return NextResponse.json({ error: 'Customer code already exists.' }, { status: 409 });
+          }
+        }
+      }
     }
     return NextResponse.json({ error: 'Failed to update customer' }, { status: 500 });
   }

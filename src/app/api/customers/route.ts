@@ -1,6 +1,7 @@
 // src/app/api/customers/route.ts
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library'; // Import specific Prisma error type
 
 export async function GET(request: Request) {
   try {
@@ -10,7 +11,11 @@ export async function GET(request: Request) {
     const limit = parseInt(searchParams.get('limit') || '10', 10);
     const skip = (page - 1) * limit;
 
-    const where: any = {};
+    // ⭐ Type 'where' explicitly as Prisma.CustomerWhereInput or similar if available,
+    // or just let it be inferred if it's directly assigned to a Prisma query.
+    // For general purpose, 'Record<string, any>' is better than 'any' directly.
+    const where: { OR?: any[]; name?: { contains: string; mode: 'insensitive' }; code?: { contains: string; mode: 'insensitive' }; contactPerson?: { contains: string; mode: 'insensitive' }; phone?: { contains: string } } = {};
+    
     if (search) {
       where.OR = [
         { name: { contains: search, mode: 'insensitive' } },
@@ -50,6 +55,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
+    // Destructure properties from body, allowing TypeScript to infer types
     const { name, code, contactPerson, phone, address } = body;
 
     if (!name || !code) {
@@ -66,13 +72,19 @@ export async function POST(request: Request) {
       },
     });
     return NextResponse.json(newCustomer, { status: 201 });
-  } catch (error: any) {
+  } catch (error) { // ⭐ Changed 'error: any' to 'error' and then check its type
     console.error('Error creating customer:', error);
-    if (error.code === 'P2002' && error.meta?.target?.includes('phone')) {
-      return NextResponse.json({ error: 'Phone number already exists.' }, { status: 409 });
-    }
-    if (error.code === 'P2002' && error.meta?.target?.includes('code')) {
-      return NextResponse.json({ error: 'Customer code already exists.' }, { status: 409 });
+    if (error instanceof PrismaClientKnownRequestError) { // ⭐ Use Prisma's specific error type
+      if (error.code === 'P2002') { // Unique constraint violation
+        if (error.meta?.target && Array.isArray(error.meta.target)) {
+          if (error.meta.target.includes('phone')) {
+            return NextResponse.json({ error: 'Phone number already exists.' }, { status: 409 });
+          }
+          if (error.meta.target.includes('code')) {
+            return NextResponse.json({ error: 'Customer code already exists.' }, { status: 409 });
+          }
+        }
+      }
     }
     return NextResponse.json({ error: 'Failed to create customer' }, { status: 500 });
   }
