@@ -1,6 +1,8 @@
 // src/app/api/products/[id]/route.ts
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+// Import specific Prisma error type for better error handling
+import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
 
 // GET /api/products/[id]
 export async function GET(request: Request, { params }: { params: { id: string } }) {
@@ -27,7 +29,7 @@ export async function PUT(request: Request, { params }: { params: { id: string }
     const body = await request.json();
     const { name, code, price, unit } = body;
 
-    if (!name || !code || !price || !unit) {
+    if (!name || !code || typeof price === 'undefined' || !unit) { // Changed !price to typeof price === 'undefined'
       return NextResponse.json({ error: 'All fields are required' }, { status: 400 });
     }
 
@@ -41,10 +43,13 @@ export async function PUT(request: Request, { params }: { params: { id: string }
       },
     });
     return NextResponse.json(updatedProduct);
-  } catch (error: any) {
+  } catch (error) {
     console.error(`Error updating product ${params.id}:`, error);
-    if (error.code === 'P2002' && error.meta?.target?.includes('code')) {
-      return NextResponse.json({ error: 'Product code already exists.' }, { status: 409 });
+    // Properly type the error to check for Prisma specific errors
+    if (error instanceof PrismaClientKnownRequestError) {
+      if (error.code === 'P2002' && error.meta?.target && Array.isArray(error.meta.target) && error.meta.target.includes('code')) {
+        return NextResponse.json({ error: 'Product code already exists.' }, { status: 409 });
+      }
     }
     return NextResponse.json({ error: 'Failed to update product' }, { status: 500 });
   }

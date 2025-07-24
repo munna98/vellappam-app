@@ -1,6 +1,6 @@
 // src/app/products/page.tsx
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react'; // Import useCallback
 import Link from 'next/link';
 import { useDebounce } from '@/lib/useDebounce';
 import { Input } from '@/components/ui/input';
@@ -22,7 +22,7 @@ import {
   PaginationLink,
   PaginationNext,
   PaginationPrevious,
-  PaginationEllipsis
+  // Removed PaginationEllipsis as it's not used
 } from '@/components/ui/pagination';
 
 interface Product {
@@ -53,7 +53,8 @@ export default function ProductsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const debouncedSearchTerm = useDebounce(searchTerm, 500);
 
-  const fetchProducts = async (page = 1, search = '') => {
+  // Memoize fetchProducts using useCallback to prevent re-creation on every render
+  const fetchProducts = useCallback(async (page = 1, search = '') => {
     setIsLoading(true);
     try {
       const query = new URLSearchParams({
@@ -71,14 +72,15 @@ export default function ProductsPage() {
       }
     } catch (error) {
       console.error('Error fetching products:', error);
+      // Consider adding a toast error here for user feedback
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [pagination.limit]); // Dependency on pagination.limit is necessary
 
   useEffect(() => {
     fetchProducts(1, debouncedSearchTerm);
-  }, [debouncedSearchTerm]);
+  }, [debouncedSearchTerm, fetchProducts]); // Added fetchProducts to dependencies
 
   const handlePageChange = (page: number) => {
     if (page >= 1 && page <= pagination.totalPages) {
@@ -88,26 +90,49 @@ export default function ProductsPage() {
 
   const handleDelete = (deletedId: string) => {
     setProducts(prev => prev.filter(product => product.id !== deletedId));
-    
-    setPagination(prev => ({
-      ...prev,
-      total: prev.total - 1,
-      totalPages: Math.ceil((prev.total - 1) / prev.limit),
-    }));
 
-    if (products.length === 1 && pagination.currentPage > 1) {
-      handlePageChange(pagination.currentPage - 1);
-    }
+    setPagination(prev => {
+      const newTotal = prev.total - 1;
+      const newTotalPages = Math.ceil(newTotal / prev.limit);
+      // Adjust current page if the last item on a page was deleted
+      const newCurrentPage = (prev.currentPage > newTotalPages && newTotalPages > 0)
+        ? newTotalPages
+        : prev.currentPage;
+
+      // Re-fetch if the current page becomes empty after deletion and it's not the first page
+      if (newTotal > 0 && products.length === 1 && prev.currentPage > 1) {
+        fetchProducts(newCurrentPage, debouncedSearchTerm);
+      } else if (newTotal === 0) { // If all items are deleted
+        setProducts([]); // Ensure products array is empty
+      }
+      return {
+        ...prev,
+        total: newTotal,
+        totalPages: newTotalPages,
+        currentPage: newCurrentPage,
+      };
+    });
   };
+
 
   const renderPageNumbers = () => {
     const pages = [];
     const maxVisible = 5;
-    let start = Math.max(1, pagination.currentPage - 2);
+    let start = Math.max(1, pagination.currentPage - Math.floor(maxVisible / 2)); // Calculate start more dynamically
     let end = Math.min(pagination.totalPages, start + maxVisible - 1);
 
-    if (pagination.totalPages > maxVisible && end - start < maxVisible - 1) {
-      start = Math.max(1, end - maxVisible + 1);
+    // Adjust start if end is limited by totalPages
+    if (end - start + 1 < maxVisible && pagination.totalPages > maxVisible) {
+      start = Math.max(1, pagination.totalPages - maxVisible + 1);
+    }
+
+    // Add ellipsis if needed
+    if (start > 1) {
+      pages.push(
+        <PaginationItem key="start-ellipsis">
+          <PaginationEllipsis />
+        </PaginationItem>
+      );
     }
 
     for (let i = start; i <= end; i++) {
@@ -120,6 +145,14 @@ export default function ProductsPage() {
           >
             {i}
           </PaginationLink>
+        </PaginationItem>
+      );
+    }
+
+    if (end < pagination.totalPages) {
+      pages.push(
+        <PaginationItem key="end-ellipsis">
+          <PaginationEllipsis />
         </PaginationItem>
       );
     }

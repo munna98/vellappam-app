@@ -21,7 +21,7 @@ import { useEffect, useState } from 'react';
 const formSchema = z.object({
   name: z.string().min(2, { message: 'Product Name is required.' }),
   code: z.string().min(1, { message: 'Product Code is required.' }),
-  price: z.number().min(0, { message: 'Price must be a positive number.' }),
+  price: z.number().min(0.01, { message: 'Price must be a positive number.' }), // Changed min to 0.01
   unit: z.string().min(1, { message: 'Unit is required.' }),
 });
 
@@ -34,7 +34,7 @@ export default function NewProductPage() {
     defaultValues: {
       name: '',
       code: 'Loading...', // Initial state
-      price: 0,
+      price: 0.01, // Default price to a valid min value
       unit: 'pcs',
     },
   });
@@ -58,7 +58,7 @@ export default function NewProductPage() {
       }
     };
     fetchNextProductCode();
-  }, [form]);
+  }, [form]); // `form` is a stable object provided by useForm, so including it here is fine.
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     try {
@@ -76,9 +76,10 @@ export default function NewProductPage() {
       toast.success('Product created successfully!');
       router.push('/products');
       router.refresh();
-    } catch (error: any) {
+    } catch (error) { // Removed ': any'
       console.error(error);
-      toast.error(error.message || 'Error creating product.');
+      // Safely access the message property if it's an Error object
+      toast.error((error instanceof Error ? error.message : 'Error creating product.'));
     }
   }
 
@@ -107,9 +108,9 @@ export default function NewProductPage() {
               <FormItem>
                 <FormLabel>Product Code</FormLabel>
                 <FormControl>
-                  <Input 
-                    placeholder="e.g., 1, 2, 3" 
-                    {...field} 
+                  <Input
+                    placeholder="e.g., 1, 2, 3"
+                    {...field}
                     disabled={isLoading}
                   />
                 </FormControl>

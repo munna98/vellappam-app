@@ -1,6 +1,10 @@
 // src/app/api/products/route.ts
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+// Import specific Prisma error type for better error handling
+import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
+// Import Prisma namespace for generated types
+import { Prisma } from '@prisma/client';
 
 export async function GET(request: Request) {
   try {
@@ -10,7 +14,8 @@ export async function GET(request: Request) {
     const limit = parseInt(searchParams.get('limit') || '10', 10);
     const skip = (page - 1) * limit;
 
-    const where: any = {};
+    // Use Prisma.ProductWhereInput for type safety
+    const where: Prisma.ProductWhereInput = {};
     if (search) {
       where.OR = [
         { name: { contains: search, mode: 'insensitive' } },
@@ -51,7 +56,7 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { name, code, price, unit } = body;
 
-    if (!name || !code || !price || !unit) {
+    if (!name || !code || typeof price === 'undefined' || !unit) { // Changed !price to typeof price === 'undefined'
       return NextResponse.json({ error: 'All fields are required' }, { status: 400 });
     }
 
@@ -68,11 +73,14 @@ export async function POST(request: Request) {
       },
     });
     return NextResponse.json(newProduct, { status: 201 });
-  } catch (error: any) {
+  } catch (error) {
     console.error('Error creating product:', error);
-    if (error.code === 'P2002') {
-      if (error.meta?.target?.includes('code')) {
-        return NextResponse.json({ error: 'Product code already exists.' }, { status: 409 });
+    // Properly type the error to check for Prisma specific errors
+    if (error instanceof PrismaClientKnownRequestError) {
+      if (error.code === 'P2002') {
+        if (error.meta?.target && Array.isArray(error.meta.target) && error.meta.target.includes('code')) {
+          return NextResponse.json({ error: 'Product code already exists.' }, { status: 409 });
+        }
       }
     }
     return NextResponse.json({ error: 'Failed to create product' }, { status: 500 });

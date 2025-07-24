@@ -23,10 +23,10 @@ interface DeleteProductButtonProps {
   onDelete?: (deletedId: string) => void;
 }
 
-export function DeleteProductButton({ 
-  productId, 
+export function DeleteProductButton({
+  productId,
   productName,
-  onDelete 
+  onDelete
 }: DeleteProductButtonProps) {
   const [isLoading, setIsLoading] = useState(false);
 
@@ -46,9 +46,10 @@ export function DeleteProductButton({
       if (onDelete) {
         onDelete(productId);
       }
-    } catch (error: any) {
+    } catch (error) { // Removed ': any'
       console.error('Error deleting product:', error);
-      toast.error(error.message || 'Error deleting product.');
+      // Safely access the message property if it's an Error object
+      toast.error((error instanceof Error ? error.message : 'Error deleting product.'));
     } finally {
       setIsLoading(false);
     }

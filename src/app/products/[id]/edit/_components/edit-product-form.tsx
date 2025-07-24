@@ -13,7 +13,7 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
- } from '@/components/ui/form';
+} from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { Product } from '@prisma/client';
@@ -59,9 +59,10 @@ export function EditProductForm({ product }: EditProductFormProps) {
       toast.success('Product updated successfully!');
       router.push('/products'); // Redirect to the product list
       router.refresh(); // Revalidate data
-    } catch (error: any) {
+    } catch (error) { // Removed ': any'
       console.error(error);
-      toast.error(error.message || 'Error updating product.');
+      // Safely access the message property if it's an Error object
+      toast.error((error instanceof Error ? error.message : 'Error updating product.'));
     }
   }
 
