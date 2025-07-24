@@ -256,7 +256,7 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
           items: items.map((item) => {
             // ⭐ FIX: Remove productName and productCode from destructuring if not used
             // This also resolves the 'defined but never used' error.
-            const { id, productName, productCode, ...rest } = item;
+            const { id,  ...rest } = item;
             return {
               ...rest,
               // Only include 'id' if it's an existing item (i.e., not a newly added one)

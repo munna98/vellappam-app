@@ -1,14 +1,8 @@
 // src/types/index.ts
 
 import {
-  Payment,
-  Customer,
-  Invoice,
-  PaymentAllocation as PrismaPaymentAllocation,
-  Product,
-  InvoiceItem as PrismaInvoiceItem,
   Prisma, // ⭐ Import Prisma for Prisma.validator
-  CompanyInfo, // Assuming CompanyInfo is also a Prisma model
+  // CompanyInfo, // Only keep if actually used elsewhere in the file
 } from '@prisma/client';
 
 // Extends the base Prisma Payment type to include its relations

@@ -6,15 +6,12 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import {
-  Users,
   TrendingUp,
   AlertTriangle,
   DollarSign,
-  FileText,
   Calendar,
   Target,
   Clock,
-  Package // Added Package icon back for Total Products
 } from 'lucide-react'; // Ensure all used icons are imported
 import prisma from '@/lib/prisma';
 import { InvoiceStatus } from '@prisma/client';
@@ -22,8 +19,6 @@ import { InvoiceStatus } from '@prisma/client';
 async function getDashboardData() {
   const now = new Date();
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-  const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000); // Not used in current UI, but kept for context if needed
-
   // Parallel queries for better performance
   const [
     totalCustomers,

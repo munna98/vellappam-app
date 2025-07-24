@@ -1,4 +1,3 @@
-// src/app/products/page.tsx
 'use client';
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
@@ -81,13 +80,15 @@ export default function ProductsPage() {
     fetchProducts(1, debouncedSearchTerm);
   }, [debouncedSearchTerm, fetchProducts]);
 
-  const handlePageChange = (page: number) => {
+  // ⭐ FIX: Wrap handlePageChange in useCallback
+  const handlePageChange = useCallback((page: number) => {
     if (page >= 1 && page <= pagination.totalPages) {
       fetchProducts(page, debouncedSearchTerm);
     }
-  };
+  }, [pagination.totalPages, fetchProducts, debouncedSearchTerm]); // Add dependencies
 
-  const handleDelete = (deletedId: string) => {
+  // ⭐ Wrap handleDelete in useCallback
+  const handleDelete = useCallback((deletedId: string) => {
     setProducts(prev => prev.filter(product => product.id !== deletedId));
 
     setPagination(prev => {
@@ -113,9 +114,10 @@ export default function ProductsPage() {
         currentPage: newCurrentPage,
       };
     });
-  };
+  }, [debouncedSearchTerm, fetchProducts, products.length]);
 
-  const renderPageNumbers = useCallback(() => { // ⭐ Wrap in useCallback
+
+  const renderPageNumbers = useCallback(() => {
     const pages = [];
     const maxVisible = 5; // Max number of page buttons to show
     let startPage = Math.max(1, pagination.currentPage - Math.floor(maxVisible / 2));
@@ -160,7 +162,7 @@ export default function ProductsPage() {
     }
 
     return pages;
-  }, [pagination.currentPage, pagination.totalPages, handlePageChange]); // ⭐ Dependencies for useCallback
+  }, [pagination.currentPage, pagination.totalPages, handlePageChange]);
 
 
   return (

@@ -19,7 +19,8 @@ interface ComboboxProps<T> {
   formatItemLabel?: (item: T) => string;
 }
 
-export function Combobox<T extends { [key: string]: any }>({
+// ⭐ FIX: Changed 'any' to 'unknown' and removed unused 'index'
+export function Combobox<T extends { [key: string]: unknown }>({
   id,
   items,
   value,
@@ -32,7 +33,7 @@ export function Combobox<T extends { [key: string]: any }>({
   formatItemLabel,
 }: ComboboxProps<T>) {
   const [open, setOpen] = useState(false);
-  
+
   const selectedItemDisplay = value
     ? items.find((item) => String(item[valueKey]) === value)
     : null;
@@ -59,10 +60,10 @@ export function Combobox<T extends { [key: string]: any }>({
           <CommandList>
             <CommandEmpty>{emptyMessage}</CommandEmpty>
             <CommandGroup>
-              {items.map((item, index) => {
+              {items.map((item, _index) => { // ⭐ FIX: Changed index to _index as it's unused
                 const itemValue = String(item[valueKey]);
                 const itemDisplay = formatItemLabel ? formatItemLabel(item) : String(item[displayKey]);
-                
+
                 return (
                   <CommandItem
                     key={itemValue}
@@ -74,7 +75,7 @@ export function Combobox<T extends { [key: string]: any }>({
                         const display = formatItemLabel ? formatItemLabel(item) : String(item[displayKey]);
                         return display.toLowerCase() === currentValue.toLowerCase();
                       });
-                      
+
                       if (selectedItem) {
                         const selectedValue = String(selectedItem[valueKey]);
                         onSelect(selectedValue === value ? "" : selectedValue);

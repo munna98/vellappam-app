@@ -1,7 +1,6 @@
-// src/app/payments/page.tsx
 'use client';
 
-import { useState, useEffect, useCallback } from 'react'; // ⭐ Import useCallback
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useDebounce } from '@/lib/useDebounce';
 import { Input } from '@/components/ui/input';
@@ -14,7 +13,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { PlusCircle, Edit } from 'lucide-react'; // ⭐ Removed Trash2
+import { PlusCircle, Edit } from 'lucide-react';
 import { format } from 'date-fns';
 import { DeletePaymentButton } from './_components/delete-payment-button';
 import {
@@ -70,7 +69,6 @@ export default function PaymentsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const debouncedSearchTerm = useDebounce(searchTerm, 500);
 
-  // ⭐ FIX: Wrap fetchPayments in useCallback
   const fetchPayments = useCallback(async (page = 1, query = '') => {
     setIsLoading(true);
     try {
@@ -100,33 +98,29 @@ export default function PaymentsPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [pagination.limit]); // ⭐ Add pagination.limit to dependencies
+  }, [pagination.limit]);
 
   useEffect(() => {
-    fetchPayments(pagination.currentPage, debouncedSearchTerm); // ⭐ Pass current page
-  }, [debouncedSearchTerm, fetchPayments, pagination.currentPage]); // ⭐ Add fetchPayments and pagination.currentPage to dependencies
+    fetchPayments(pagination.currentPage, debouncedSearchTerm);
+  }, [debouncedSearchTerm, fetchPayments, pagination.currentPage]);
 
-  const handlePageChange = (page: number) => {
+  // ⭐ FIX: Wrap handlePageChange in useCallback
+  const handlePageChange = useCallback((page: number) => {
     if (page >= 1 && page <= pagination.totalPages) {
-      // No need to update pagination.currentPage directly here,
-      // fetchPayments will update it when data is fetched.
       fetchPayments(page, debouncedSearchTerm);
     }
-  };
+  }, [pagination.totalPages, fetchPayments, debouncedSearchTerm]); // Add dependencies
 
   // Function to handle deletion, re-fetch data to reflect changes
-  const handleDelete = () => {
+  const handleDelete = useCallback(() => { // ⭐ Wrap handleDelete in useCallback
     fetchPayments(pagination.currentPage, debouncedSearchTerm);
-  };
+  }, [fetchPayments, pagination.currentPage, debouncedSearchTerm]);
+
 
   const renderPageNumbers = () => {
     const pages = [];
     const maxVisible = 5;
     let start = Math.max(1, pagination.currentPage - Math.floor(maxVisible / 2));
-    // ⭐ FIX: Use const for 'end' if it's not reassigned. It is reassigned, so 'let' is correct.
-    // The previous error was a linter suggestion "prefer-const", which is often overridden when a variable needs reassignment.
-    // However, if you *can* make it const, it's better. In this specific case, it gets reassigned.
-    // So, we'll keep `let` for `end` and ensure `start` is also `let` because it might be adjusted.
     let end = Math.min(pagination.totalPages, start + maxVisible - 1);
 
     // Adjust start if end is limited by totalPages
