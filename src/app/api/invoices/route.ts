@@ -5,28 +5,27 @@ import prisma from '@/lib/prisma';
 import { InvoiceStatus, Prisma } from '@prisma/client'; // Import Prisma for types
 
 async function generateNextInvoiceNumber(tx: Prisma.TransactionClient): Promise<string> {
-  const allInvoiceNumbers = await tx.invoice.findMany({
+  // Optimized: Query only the latest invoice for the highest number
+  const lastInvoice = await tx.invoice.findFirst({
     select: { invoiceNumber: true },
-    orderBy: { createdAt: 'desc' },
-    take: 1,
+    orderBy: { invoiceNumber: 'desc' }, // Sort by invoiceNumber descending to get the latest INVXYZ
   });
 
   let maxNumericInvoice = 0;
-  if (allInvoiceNumbers.length > 0) {
-    const latestInvoiceNumber = allInvoiceNumbers[0].invoiceNumber;
-    const match = latestInvoiceNumber.match(/^INV(\d+)$/);
+  if (lastInvoice && lastInvoice.invoiceNumber) {
+    const match = lastInvoice.invoiceNumber.match(/^INV(\d+)$/);
     if (match) {
       maxNumericInvoice = parseInt(match[1], 10);
     }
   }
-
   return `INV${maxNumericInvoice + 1}`;
 }
 
 async function generateNextPaymentNumber(tx: Prisma.TransactionClient): Promise<string> {
+  // Optimized: Query only the latest payment for the highest number
   const lastPayment = await tx.payment.findFirst({
-    orderBy: { createdAt: 'desc' },
     select: { paymentNumber: true },
+    orderBy: { paymentNumber: 'desc' }, // Sort by paymentNumber descending to get the latest PAYXYZ
   });
 
   if (!lastPayment || !lastPayment.paymentNumber) {

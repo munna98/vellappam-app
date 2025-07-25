@@ -110,7 +110,6 @@ async function getDashboardData() {
   const invoiceBreakdown = {
     pending: 0,
     paid: 0,
-    // 'partial' and 'cancelled' are no longer separate statuses
     pendingAmount: 0, // Total balance due for pending invoices
     paidAmount: 0,    // Total netAmount for paid invoices
   };
@@ -123,7 +122,6 @@ async function getDashboardData() {
         break;
       case InvoiceStatus.PAID:
         invoiceBreakdown.paid = stat._count.status;
-        // For PAID invoices, sum the netAmount to get total paid amount
         invoiceBreakdown.paidAmount = stat._sum.netAmount || 0;
         break;
     }
