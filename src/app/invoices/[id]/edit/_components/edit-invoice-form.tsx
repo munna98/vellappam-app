@@ -7,8 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { Plus, X } from 'lucide-react';
-import { Customer, Product, CompanyInfo } from '@prisma/client'; // Keep Prisma client types
+import { Plus, X, Check } from 'lucide-react'; // Import Check for success icon
+import { Customer, Product, CompanyInfo } from '@prisma/client';
 import { Combobox } from '@/components/ui/combobox';
 import {
   Table,
@@ -21,27 +21,22 @@ import {
 import { Card, CardContent } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Loader2 } from 'lucide-react'; // Import Loader2 for loading indicator
 
 import { printReactComponent } from '@/lib/print-utils';
 import InvoicePrintTemplate from '@/components/invoice-print-template';
-// ⭐ FIX: Import FullInvoice and FullInvoiceItem from your central types file
 import { FullInvoice, FullInvoiceItem } from '@/types';
 
 
-// Define FormInvoiceItem for internal state, mapping from FullInvoiceItem
-// It includes client-side specific fields like productName, productCode for display.
 interface FormInvoiceItem {
-  id: string; // Unique ID for React list key (can be existing item's ID or a new UUID for new items)
+  id: string;
   productId: string;
-  productName: string; // For display, not sent to API
-  productCode: string; // For display, not sent to API
+  productName: string;
+  productCode: string;
   quantity: number;
   unitPrice: number;
   total: number;
 }
-
-// CompanyInfo is already imported from @prisma/client, no need to redefine
-// export type CompanyInfo = CompanyInfo; // This line is redundant
 
 interface EditInvoiceFormProps {
   initialInvoice: FullInvoice;
@@ -56,14 +51,12 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
   const [invoiceDate, setInvoiceDate] = useState<string>(new Date(initialInvoice.invoiceDate).toISOString().split('T')[0]);
   const [notes, setNotes] = useState(initialInvoice.notes || '');
 
-  // Initialize items state from initialInvoice
   const [items, setItems] = useState<FormInvoiceItem[]>(
-    initialInvoice.items.map((item: FullInvoiceItem) => ({ // Explicitly type 'item' here
-      id: item.id, // Use existing item ID for existing items
-      productId: item.productId,
-      // ✨ CRITICAL: Safely access product properties with optional chaining and fallbacks ✨
+    initialInvoice.items.map((item: FullInvoiceItem) => ({
+      id: item.id,
       productName: item.product?.name || 'Unknown Product',
       productCode: item.product?.code || 'N/A',
+      productId: item.productId,
       quantity: item.quantity,
       unitPrice: item.unitPrice,
       total: item.total,
@@ -73,15 +66,18 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
   const [discountAmount, setDiscountAmount] = useState<number>(initialInvoice.discountAmount);
   const [paidAmount, setPaidAmount] = useState<number>(initialInvoice.paidAmount);
 
-  // States for adding a new product line
   const [selectedProductToAdd, setSelectedProductToAdd] = useState<string | null>(null);
   const [quantityToAdd, setQuantityToAdd] = useState<number>(1);
   const [unitPriceToAdd, setUnitPriceToAdd] = useState<number>(0);
 
   const [companyInfo, setCompanyInfo] = useState<CompanyInfo | null>(null);
   const [shouldPrint, setShouldPrint] = useState<boolean>(true);
+  // ⭐ NEW: State for loading indicator on save button
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  // ⭐ NEW: State for success indicator on save button
+  const [isSaved, setIsSaved] = useState<boolean>(false);
 
-  // Store the customer's balance *before* the impact of this invoice was added
+
   const [customerBalanceBeforeThisInvoice, setCustomerBalanceBeforeThisInvoice] = useState<number>(0);
 
   useEffect(() => {
@@ -103,7 +99,6 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
         const productsResponse = await productsRes.json();
         const productsData: Product[] = Array.isArray(productsResponse.data) ? productsResponse.data : [];
 
-        // Cast to CompanyInfo (Prisma.Company) to ensure type compatibility
         const companyInfoData: CompanyInfo = await companyInfoRes.json();
 
         setCustomers(customersData);
@@ -112,14 +107,13 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
         setSelectedCustomer(customersData.find(c => c.id === initialInvoice.customerId) || null);
         setShouldPrint(companyInfoData.defaultPrintOnSave ?? true);
 
-        // Calculate customer's balance *before* this invoice's impact
         const customerActualCurrentBalance = customersData.find(c => c.id === initialInvoice.customerId)?.balance || 0;
         const calculatedBalanceBeforeThisInvoice = customerActualCurrentBalance - initialInvoice.balanceDue;
         setCustomerBalanceBeforeThisInvoice(calculatedBalanceBeforeThisInvoice);
 
-      } catch (error: unknown) { // ⭐ FIX: Type 'error' as unknown
+      } catch (error: unknown) {
         console.error('Error fetching initial data:', error);
-        toast.error(error instanceof Error ? error.message : 'Failed to load initial data.'); // ⭐ FIX: Narrow error type
+        toast.error(error instanceof Error ? error.message : 'Failed to load initial data.');
         setCustomers([]);
         setProducts([]);
       }
@@ -127,7 +121,6 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
     fetchData();
   }, [initialInvoice.customerId, initialInvoice.balanceDue]);
 
-  // Update unitPriceToAdd when a product is selected in the "add new product" row
   useEffect(() => {
     if (selectedProductToAdd) {
       const product = products.find((p) => p.id === selectedProductToAdd);
@@ -139,19 +132,16 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
     }
   }, [selectedProductToAdd, products]);
 
-  // --- Handlers for existing invoice items (in the table) ---
   const handleItemUpdate = (
     itemId: string,
-    field: 'quantity' | 'unitPrice', // ⭐ FIX: Explicitly type 'field'
-    value: number // ⭐ FIX: Explicitly type 'value'
+    field: 'quantity' | 'unitPrice',
+    value: number
   ) => {
     setItems((prevItems) =>
       prevItems.map((item) => {
         if (item.id === itemId) {
           const updatedItem = { ...item, [field]: value };
-          if (field === 'quantity' || field === 'unitPrice') {
-            updatedItem.total = (updatedItem.quantity || 0) * (updatedItem.unitPrice || 0);
-          }
+          updatedItem.total = (updatedItem.quantity || 0) * (updatedItem.unitPrice || 0);
           return updatedItem;
         }
         return item;
@@ -162,10 +152,7 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
   const handleRemoveItem = (itemId: string) => {
     setItems((prevItems) => prevItems.filter((item) => item.id !== itemId));
   };
-  // --- End Handlers for existing invoice items ---
 
-
-  // --- Handler for adding a NEW product line (below the table) ---
   const handleAddProduct = () => {
     if (!selectedProductToAdd || quantityToAdd <= 0 || unitPriceToAdd <= 0) {
       toast.error('Please select a product, enter a valid quantity, and a valid unit price.');
@@ -183,7 +170,7 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
       setItems((prevItems) => [
         ...prevItems,
         {
-          id: crypto.randomUUID(), // Generate a new ID for new items
+          id: crypto.randomUUID(),
           productId: product.id,
           productName: product.name,
           productCode: product.code,
@@ -197,10 +184,7 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
       setUnitPriceToAdd(0);
     }
   };
-  // --- End Handler for adding a NEW product line ---
 
-
-  // --- Calculations ---
   const subtotal = useMemo(() => {
     return items.reduce((sum, item) => sum + item.total, 0);
   }, [items]);
@@ -210,9 +194,19 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
   }, [subtotal, discountAmount]);
 
   const currentBillBalanceDue = useMemo(() => {
-    return Math.max(0, netAmount - paidAmount);
+    // Ensure paidAmount does not exceed netAmount for display calculation
+    return Math.max(0, netAmount - Math.min(paidAmount, netAmount));
   }, [netAmount, paidAmount]);
-  // --- End Calculations ---
+
+  const handlePaidAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let value = parseFloat(e.target.value);
+
+    // Prevent negative input and ensure it's not NaN
+    if (isNaN(value) || value < 0) {
+      value = 0;
+    }
+    setPaidAmount(value);
+  };
 
 
   const handleSaveInvoice = async () => {
@@ -239,10 +233,17 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
         return;
     }
 
-    if (paidAmount < 0 || paidAmount > netAmount) {
-      toast.error('Paid amount must be between 0 and the Net Amount.');
+    // IMPORTANT: Cap paidAmount to netAmount *before* sending to API
+    const finalPaidAmount = Math.min(paidAmount, netAmount);
+
+    if (finalPaidAmount < 0) {
+      toast.error('Paid amount cannot be negative.');
       return;
     }
+
+    // ⭐ NEW: Reset isSaved and Set loading state to true
+    setIsSaved(false);
+    setIsSaving(true);
 
     try {
       const response = await fetch(`/api/invoices/${initialInvoice.id}`, {
@@ -251,23 +252,17 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
         body: JSON.stringify({
           customerId: selectedCustomer.id,
           invoiceDate,
-          // Only send necessary fields to the backend for items.
-          // The backend handles the creation/update/deletion based on `id` presence.
           items: items.map((item) => {
-            // ⭐ FIX: Remove productName and productCode from destructuring if not used
-            // This also resolves the 'defined but never used' error.
-            const { id,  ...rest } = item;
+            const { id, productName, productCode, ...rest } = item;
             return {
               ...rest,
-              // Only include 'id' if it's an existing item (i.e., not a newly added one)
-              // This is how your backend distinguishes between update and create.
               id: initialInvoice.items.some(initialItem => initialItem.id === id) ? id : undefined,
             };
           }),
           notes,
           totalAmount: subtotal,
           discountAmount,
-          paidAmount,
+          paidAmount: finalPaidAmount,
         }),
       });
 
@@ -278,6 +273,9 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
 
       const updatedInvoice: FullInvoice = await response.json();
       toast.success('Invoice updated successfully!');
+
+      // ⭐ NEW: Set isSaved to true
+      setIsSaved(true);
 
       if (shouldPrint && companyInfo) {
         printReactComponent(<InvoicePrintTemplate
@@ -294,11 +292,24 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
         toast.warning('Company information not set. Cannot print thermal invoice.');
       }
 
-      router.push('/invoices');
-      router.refresh();
-    } catch (error: unknown) { // ⭐ FIX: Type 'error' as unknown
+      // ⭐ NEW: Add a timeout before navigating away
+      setTimeout(() => {
+        router.push('/invoices');
+        router.refresh();
+      }, 1500); // 1.5 seconds to show "Saved!" message
+
+    } catch (error: unknown) {
       console.error(error);
-      toast.error(error instanceof Error ? error.message : 'Error updating invoice.'); // ⭐ FIX: Narrow error type
+      toast.error(error instanceof Error ? error.message : 'Error updating invoice.');
+      // ⭐ NEW: Ensure isSaved is false on error
+      setIsSaved(false);
+    } finally {
+      // ⭐ NEW: Always set loading state to false after try/catch
+      setIsSaving(false);
+      // ⭐ NEW: If successful, set a timeout to reset isSaved after a short display
+      if (isSaved) { // Only reset if it was successfully saved
+        setTimeout(() => setIsSaved(false), 1500); // Reset after 1.5 seconds
+      }
     }
   };
 
@@ -333,7 +344,7 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
               <div className="space-y-2">
                 <Label htmlFor="customer">Select Customer</Label>
                 <Combobox
-                  id="customer" // ⭐ FIX: Pass the 'id' prop here (if your Combobox component expects it)
+                  id="customer"
                   items={customers}
                   value={selectedCustomer?.id || null}
                   onSelect={(id) =>
@@ -379,7 +390,7 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
                 </TableHeader>
                 <TableBody>
                   {items.map((item) => (
-                    <TableRow key={item.id}> {/* Ensure unique key */}
+                    <TableRow key={item.id}>
                       <TableCell>{item.productCode}</TableCell>
                       <TableCell className="font-medium">{item.productName}</TableCell>
                       <TableCell className="w-[120px]">
@@ -429,7 +440,7 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
               <div className="flex-1 min-w-[200px] sm:min-w-[250px] md:min-w-[300px] space-y-2">
                 <Label htmlFor="productToAdd">Add New Product</Label>
                 <Combobox
-                  id="productToAdd" // ⭐ FIX: Pass the 'id' prop here (if your Combobox component expects it)
+                  id="productToAdd"
                   items={products}
                   value={selectedProductToAdd}
                   onSelect={setSelectedProductToAdd}
@@ -532,7 +543,7 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
                   min="0"
                   step="0.01"
                   value={paidAmount === 0 ? '' : paidAmount}
-                  onChange={(e) => setPaidAmount(parseFloat(e.target.value) || 0)}
+                  onChange={handlePaidAmountChange}
                   placeholder="0.00"
                   className="w-[120px] text-right"
                 />
@@ -542,10 +553,19 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
                 <span className="text-2xl font-extrabold">₹{currentBillBalanceDue.toFixed(2)}</span>
               </div>
               <div className="flex gap-2 mt-4">
-                <Button variant="outline" onClick={() => router.push('/invoices')}>
+                <Button variant="outline" onClick={() => router.push('/invoices')} disabled={isSaving}>
                   Cancel
                 </Button>
-                <Button onClick={handleSaveInvoice}>Save Changes</Button>
+                <Button onClick={handleSaveInvoice} disabled={isSaving}>
+                  {isSaving ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    'Save Invoice'
+                  )}
+                </Button>
               </div>
             </div>
           </div>
