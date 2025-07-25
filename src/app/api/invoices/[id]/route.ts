@@ -1,5 +1,5 @@
 // src/app/api/invoices/[id]/route.ts
-import { NextResponse, NextRequest } from 'next/server'; // Import NextRequest
+import { NextResponse, NextRequest } from 'next/server';
 import prisma from '@/lib/prisma';
 import { InvoiceStatus, Prisma } from '@prisma/client';
 
@@ -30,8 +30,8 @@ async function generateNextPaymentNumber(tx: Prisma.TransactionClient): Promise<
 }
 
 // PUT /api/invoices/[id]
-export async function PUT(request: NextRequest) { // Changed signature: removed { params }
-  const invoiceId = extractId(request); // Extract ID from request.url
+export async function PUT(request: NextRequest) {
+  const invoiceId = extractId(request);
   if (!invoiceId) {
     return NextResponse.json({ error: 'Invoice ID is required' }, { status: 400 });
   }
@@ -55,7 +55,7 @@ export async function PUT(request: NextRequest) { // Changed signature: removed 
     const updatedInvoice = await prisma.$transaction(async (tx) => {
       // 1. Fetch the existing invoice and its customer with necessary details
       const existingInvoice = await tx.invoice.findUnique({
-        where: { id: invoiceId }, // Use invoiceId from extraction
+        where: { id: invoiceId },
         include: {
           customer: true,
           items: true,
@@ -77,11 +77,9 @@ export async function PUT(request: NextRequest) { // Changed signature: removed 
 
       // Determine new invoice status
       let newStatus: InvoiceStatus;
-      if (newInvoiceBalanceDue <= 0.001) {
+      if (newInvoiceBalanceDue <= 0.001) { // If balance is zero or negligible, it's PAID
         newStatus = InvoiceStatus.PAID;
-      } else if ((paidAmount || 0) > 0) {
-        newStatus = InvoiceStatus.PARTIAL;
-      } else {
+      } else { // Otherwise, it's PENDING (even if partially paid, as there's still a balance)
         newStatus = InvoiceStatus.PENDING;
       }
 
@@ -152,7 +150,7 @@ export async function PUT(request: NextRequest) { // Changed signature: removed 
 
       // 5. Update the Invoice record itself
       const updatedInvoiceRecord = await tx.invoice.update({
-        where: { id: invoiceId }, // Use invoiceId from extraction
+        where: { id: invoiceId },
         data: {
           customerId,
           invoiceDate: new Date(invoiceDate),
@@ -161,7 +159,7 @@ export async function PUT(request: NextRequest) { // Changed signature: removed 
           netAmount: newInvoiceNetAmount,
           paidAmount: paidAmount || 0,
           balanceDue: newInvoiceBalanceDue,
-          status: newStatus,
+          status: newStatus, // Use the new status
           notes,
         },
         include: {
@@ -187,9 +185,9 @@ export async function PUT(request: NextRequest) { // Changed signature: removed 
   }
 }
 
-// DELETE /api/invoices/[id] - Delete an invoice
-export async function DELETE(request: NextRequest) { // Changed signature: removed { params }
-  const invoiceId = extractId(request); // Extract ID from request.url
+// DELETE /api/invoices/[id] - Delete an invoice (No changes needed here as status isn't directly set)
+export async function DELETE(request: NextRequest) {
+  const invoiceId = extractId(request);
   if (!invoiceId) {
     return NextResponse.json({ error: 'Invoice ID is required' }, { status: 400 });
   }
@@ -197,7 +195,7 @@ export async function DELETE(request: NextRequest) { // Changed signature: remov
   try {
     // 1. Fetch invoice details needed for customer balance adjustment
     const invoiceToDelete = await prisma.invoice.findUnique({
-      where: { id: invoiceId }, // Use invoiceId from extraction
+      where: { id: invoiceId },
       select: {
         customerId: true,
         netAmount: true,
@@ -212,7 +210,7 @@ export async function DELETE(request: NextRequest) { // Changed signature: remov
     await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       // 1.1. Delete associated PaymentAllocations first
       await tx.paymentAllocation.deleteMany({
-        where: { invoiceId: invoiceId }, // Use invoiceId from extraction
+        where: { invoiceId: invoiceId },
       });
 
       // 1.2. Adjust customer balance
@@ -227,18 +225,18 @@ export async function DELETE(request: NextRequest) { // Changed signature: remov
 
       // 1.3. Delete associated InvoiceItems
       await tx.invoiceItem.deleteMany({
-        where: { invoiceId: invoiceId }, // Use invoiceId from extraction
+        where: { invoiceId: invoiceId },
       });
 
       // 1.4. Delete the Invoice itself
       await tx.invoice.delete({
-        where: { id: invoiceId }, // Use invoiceId from extraction
+        where: { id: invoiceId },
       });
     });
 
     return NextResponse.json({ message: 'Invoice deleted successfully' }, { status: 200 });
   } catch (error: unknown) {
-    console.error(`Error deleting invoice ${invoiceId}:`, error); // Use invoiceId from extraction
+    console.error(`Error deleting invoice ${invoiceId}:`, error);
     return NextResponse.json({ error: 'Failed to delete invoice', details: (error instanceof Error ? error.message : 'Unknown error') }, { status: 500 });
   }
 }

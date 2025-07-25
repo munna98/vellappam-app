@@ -120,7 +120,7 @@ export async function POST(request: Request) {
     const outstandingInvoices = await prisma.invoice.findMany({
       where: {
         customerId: customerId,
-        status: InvoiceStatus.PENDING, // Only consider pending invoices
+        status: InvoiceStatus.PENDING, // Now, only PENDING invoices have a balance due
         balanceDue: { gt: 0 }, // Only consider invoices with a positive balance due
       },
       orderBy: {
@@ -131,8 +131,8 @@ export async function POST(request: Request) {
         invoiceNumber: true,
         balanceDue: true,
         paidAmount: true,
-        totalAmount: true, // Included for potential future display/reporting
-        netAmount: true,   // Included for potential future display/reporting
+        totalAmount: true,
+        netAmount: true,
       },
     });
 
@@ -155,9 +155,10 @@ export async function POST(request: Request) {
         const newPaidAmount = invoice.paidAmount + amountToAllocate;
         const newBalanceDue = invoice.balanceDue - amountToAllocate;
         let newStatus: InvoiceStatus = InvoiceStatus.PENDING;
-        if (newBalanceDue <= 0.001) { // Use a small epsilon for floating point comparison
+        if (newBalanceDue <= 0.001) { // If balance is zero or negligible, it's PAID
           newStatus = InvoiceStatus.PAID;
         }
+        // No need for 'else if (newPaidAmount > 0)' for PARTIAL, as it's now just PENDING if balanceDue > 0
 
         invoicesToUpdate.push({
           id: invoice.id,

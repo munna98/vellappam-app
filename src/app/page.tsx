@@ -12,14 +12,14 @@ import {
   Calendar,
   Target,
   Clock,
-} from 'lucide-react'; // Ensure all used icons are imported
+} from 'lucide-react';
 import prisma from '@/lib/prisma';
 import { InvoiceStatus } from '@prisma/client';
 
 async function getDashboardData() {
   const now = new Date();
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-  // Parallel queries for better performance
+
   const [
     totalCustomers,
     totalProducts,
@@ -30,7 +30,6 @@ async function getDashboardData() {
     recentPayments,
     overdueInvoices,
     topCustomers,
-    // monthlyRevenue // Removed as it's not used in the current UI
   ] = await Promise.all([
     // Basic counts
     prisma.customer.count(),
@@ -47,7 +46,8 @@ async function getDashboardData() {
     prisma.invoice.groupBy({
       by: ['status'],
       _count: { status: true },
-      _sum: { netAmount: true, balanceDue: true }, // Add balanceDue sum for pending
+      // _sum.netAmount is appropriate for PAID, _sum.balanceDue for PENDING
+      _sum: { netAmount: true, balanceDue: true },
     }),
 
     // Recent invoices (last 30 days)
@@ -71,10 +71,10 @@ async function getDashboardData() {
       _count: { amount: true },
     }),
 
-    // Overdue invoices (pending/partial for more than 30 days, assuming invoiceDate as proxy for due date)
+    // Overdue invoices (only PENDING invoices with balance due)
     prisma.invoice.findMany({
       where: {
-        status: { in: [InvoiceStatus.PENDING, InvoiceStatus.PARTIAL] }, // Include partial for overdue
+        status: InvoiceStatus.PENDING, // Only consider PENDING as overdue
         invoiceDate: { lt: thirtyDaysAgo }, // Invoice created more than 30 days ago
         balanceDue: { gt: 0 } // Must still have an outstanding balance
       },
@@ -99,24 +99,20 @@ async function getDashboardData() {
       select: {
         name: true,
         balance: true,
-        phone: true, // You might display this in a tooltip or link to customer details
+        phone: true,
       },
       orderBy: { balance: 'desc' },
       take: 5
     }),
-
-    // Removed unused monthlyRevenue query
   ]);
 
   // Process invoice stats
   const invoiceBreakdown = {
     pending: 0,
     paid: 0,
-    partial: 0,
-    cancelled: 0,
+    // 'partial' and 'cancelled' are no longer separate statuses
     pendingAmount: 0, // Total balance due for pending invoices
     paidAmount: 0,    // Total netAmount for paid invoices
-    partialAmount: 0, // Total balance due for partial invoices
   };
 
   invoiceStats.forEach(stat => {
@@ -127,14 +123,8 @@ async function getDashboardData() {
         break;
       case InvoiceStatus.PAID:
         invoiceBreakdown.paid = stat._count.status;
-        invoiceBreakdown.paidAmount = stat._sum.netAmount || 0; // Total net amount of fully paid invoices
-        break;
-      case InvoiceStatus.PARTIAL:
-        invoiceBreakdown.partial = stat._count.status;
-        invoiceBreakdown.partialAmount = stat._sum.balanceDue || 0; // Total balance due for partial invoices
-        break;
-      case InvoiceStatus.CANCELLED:
-        invoiceBreakdown.cancelled = stat._count.status;
+        // For PAID invoices, sum the netAmount to get total paid amount
+        invoiceBreakdown.paidAmount = stat._sum.netAmount || 0;
         break;
     }
   });
@@ -266,14 +256,7 @@ export default async function DashboardPage() {
                 <span className="text-sm text-yellow-600">Pending</span>
                 <span className="font-semibold">{data.invoiceBreakdown.pending}</span>
               </div>
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-orange-600">Partial</span>
-                <span className="font-semibold">{data.invoiceBreakdown.partial}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-600">Cancelled</span>
-                <span className="font-semibold">{data.invoiceBreakdown.cancelled}</span>
-              </div>
+              {/* Removed Partial and Cancelled displays */}
             </div>
           </CardContent>
         </Card>

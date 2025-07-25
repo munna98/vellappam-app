@@ -1,7 +1,7 @@
 // src/app/invoices/page.tsx
 'use client';
 
-import { useState, useEffect, useCallback } from 'react'; // ⭐ Add useCallback
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useDebounce } from '@/lib/useDebounce';
@@ -24,11 +24,11 @@ import {
   PaginationPrevious,
 } from '@/components/ui/pagination';
 import { PlusCircle } from 'lucide-react';
-import { InvoiceStatus } from '@prisma/client';
+import { InvoiceStatus } from '@prisma/client'; // Import InvoiceStatus
 import { format } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
 import { DeleteInvoiceButton } from './_components/delete-invoice-button';
-import { toast } from 'sonner'; // Ensure toast is imported if used in catch blocks
+import { toast } from 'sonner';
 
 interface Invoice {
   id: string;
@@ -40,7 +40,7 @@ interface Invoice {
   netAmount: number;
   paidAmount: number;
   balanceDue: number;
-  status: InvoiceStatus;
+  status: InvoiceStatus; // This type is now correct with the updated enum
   notes: string | null;
   createdAt: string;
   updatedAt: string;
@@ -75,7 +75,6 @@ export default function InvoiceListPage() {
 
   const debouncedSearchTerm = useDebounce(searchTerm, 500);
 
-  // ⭐ FIX: Wrap fetchInvoices with useCallback to make it stable
   const fetchInvoices = useCallback(async (page: number, search: string) => {
     setIsLoading(true);
     try {
@@ -100,20 +99,19 @@ export default function InvoiceListPage() {
         router.push(`?${newParams.toString()}`, { scroll: false });
       } else {
         console.error('Failed to fetch invoices:', data.error);
-        toast.error(`Failed to fetch invoices: ${data.error || 'Unknown error'}`); // Add toast for fetch errors
+        toast.error(`Failed to fetch invoices: ${data.error || 'Unknown error'}`);
       }
-    } catch (error: unknown) { // ⭐ FIX: Type caught error as unknown
+    } catch (error: unknown) {
       console.error('Error fetching invoices:', error);
-      toast.error(error instanceof Error ? error.message : 'Error fetching invoices.'); // ⭐ FIX: Narrow error type
+      toast.error(error instanceof Error ? error.message : 'Error fetching invoices.');
     } finally {
       setIsLoading(false);
     }
-  }, [pagination.limit, router]); // pagination.limit and router are stable dependencies
+  }, [pagination.limit, router]);
 
-  // ⭐ FIX: Add fetchInvoices to the dependency array
   useEffect(() => {
     fetchInvoices(pagination.currentPage, debouncedSearchTerm);
-  }, [debouncedSearchTerm, pagination.currentPage, fetchInvoices]); // ⭐ FIX: Added fetchInvoices
+  }, [debouncedSearchTerm, pagination.currentPage, fetchInvoices]);
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchTerm(e.target.value);
@@ -132,11 +130,10 @@ export default function InvoiceListPage() {
     const newTotalPages = Math.ceil(newTotal / pagination.limit);
     let newCurrentPage = pagination.currentPage;
 
-    // Adjust current page if the last invoice on a page was deleted
     if (invoices.length === 1 && pagination.currentPage > 1) {
       newCurrentPage = pagination.currentPage - 1;
     } else if (newTotal === 0) {
-      newCurrentPage = 1; // If all invoices are deleted, reset to page 1
+      newCurrentPage = 1;
     }
 
     setPagination(prev => ({
@@ -146,13 +143,9 @@ export default function InvoiceListPage() {
       currentPage: newCurrentPage,
     }));
 
-    // Only refetch if the page changed or if it was the last invoice (which implies page change to 1)
     if (newCurrentPage !== pagination.currentPage || newTotal === 0) {
       fetchInvoices(newCurrentPage, debouncedSearchTerm);
     } else {
-      // If currentPage didn't change and there are still invoices,
-      // a simple re-fetch of the current page is sufficient.
-      // This ensures the table data reflects the deletion without changing page.
       fetchInvoices(pagination.currentPage, debouncedSearchTerm);
     }
   };
@@ -162,11 +155,8 @@ export default function InvoiceListPage() {
     const pages = [];
     const maxVisible = 5;
     let start = Math.max(1, pagination.currentPage - Math.floor(maxVisible / 2));
-    // ⭐ FIX: Changed 'end' to 'const' as it's not reassigned within this scope
     const end = Math.min(pagination.totalPages, start + maxVisible - 1);
 
-    // Adjust start if 'end' calculation results in fewer than maxVisible pages
-    // when near the end of the total pages
     if (pagination.totalPages > maxVisible && end - start < maxVisible - 1) {
       start = Math.max(1, end - maxVisible + 1);
     }
@@ -267,10 +257,8 @@ export default function InvoiceListPage() {
                       <Badge
                         variant={
                           invoice.status === InvoiceStatus.PAID
-                            ? 'default'
-                            : invoice.status === InvoiceStatus.PARTIAL
-                            ? 'outline'
-                            : 'destructive'
+                            ? 'default' // Use 'default' for PAID
+                            : 'destructive' // Use 'destructive' for PENDING
                         }
                       >
                         {invoice.status}

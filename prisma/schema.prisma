@@ -137,10 +137,7 @@ model PaymentAllocation {
 }
 
 // --- Invoice Status Enum ---
-// Defines the possible statuses for an invoice.
 enum InvoiceStatus {
-  PENDING   // Some amount is still due
-  PAID      // Fully paid
-  PARTIAL   // 
-  CANCELLED // Manually cancelled (requires separate action)
+  PENDING   // Not fully paid (balanceDue > 0)
+  PAID      // Fully paid (balanceDue <= 0)
 }

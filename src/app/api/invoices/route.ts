@@ -4,7 +4,6 @@ import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { InvoiceStatus, Prisma } from '@prisma/client'; // Import Prisma for types
 
-// ⭐ FIX: Type 'tx' explicitly as Prisma.TransactionClient
 async function generateNextInvoiceNumber(tx: Prisma.TransactionClient): Promise<string> {
   const allInvoiceNumbers = await tx.invoice.findMany({
     select: { invoiceNumber: true },
@@ -24,7 +23,6 @@ async function generateNextInvoiceNumber(tx: Prisma.TransactionClient): Promise<
   return `INV${maxNumericInvoice + 1}`;
 }
 
-// ⭐ FIX: Type 'tx' explicitly as Prisma.TransactionClient
 async function generateNextPaymentNumber(tx: Prisma.TransactionClient): Promise<string> {
   const lastPayment = await tx.payment.findFirst({
     orderBy: { createdAt: 'desc' },
@@ -60,7 +58,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Missing required fields or no items provided' }, { status: 400 });
     }
 
-    // ⭐ FIX: Type 'tx' implicitly from Prisma.$transaction callback, no need for 'any'
     const newInvoice = await prisma.$transaction(async (tx) => {
       const customer = await tx.customer.findUnique({
         where: { id: customerId },
@@ -77,9 +74,7 @@ export async function POST(request: Request) {
       let status: InvoiceStatus;
       if (currentInvoiceBalanceDue <= 0.001) { // Use epsilon for floating point comparison
         status = InvoiceStatus.PAID;
-      } else if ((paidAmount || 0) > 0) {
-        status = InvoiceStatus.PARTIAL;
-      } else {
+      } else { // Otherwise, it's PENDING (even if partially paid, as there's still a balance)
         status = InvoiceStatus.PENDING;
       }
 
@@ -96,7 +91,7 @@ export async function POST(request: Request) {
           netAmount: currentInvoiceNetAmount,
           paidAmount: paidAmount || 0,
           balanceDue: currentInvoiceBalanceDue,
-          status,
+          status, // Use the new status
           notes,
         },
         include: {
@@ -109,8 +104,7 @@ export async function POST(request: Request) {
         },
       });
 
-      // ⭐ New: 2. Create Invoice Items and link them to the new invoice
-      // ⭐ FIX: Type 'item' in map function
+      // 2. Create Invoice Items and link them to the new invoice
       const invoiceItemsToCreate = items.map((item: { productId: string; quantity: number; unitPrice: number; total: number }) => ({
         invoiceId: createdInvoice.id, // Link to the newly created invoice
         productId: item.productId,
@@ -171,10 +165,10 @@ export async function POST(request: Request) {
     });
 
     return NextResponse.json(newInvoice);
-  } catch (error: unknown) { // ⭐ FIX: Use 'unknown' for caught error
+  } catch (error: unknown) {
     console.error('Error creating invoice:', error);
     return NextResponse.json(
-      { error: 'Failed to create invoice', details: (error instanceof Error ? error.message : 'Unknown error') }, // ⭐ FIX: Narrow error type
+      { error: 'Failed to create invoice', details: (error instanceof Error ? error.message : 'Unknown error') },
       { status: 500 }
     );
   }
@@ -184,30 +178,31 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const search = searchParams.get('search') || '';
+    // ⭐ IMPORTANT: If 'status' parameter is used, ensure it only ever sends 'PENDING' or 'PAID'
     const status = searchParams.get('status') as InvoiceStatus | undefined;
     const customerId = searchParams.get('customerId');
     const page = parseInt(searchParams.get('page') || '1', 10);
     const limit = parseInt(searchParams.get('limit') || '10', 10);
     const skip = (page - 1) * limit;
 
-    // ⭐ FIX: Type 'where' explicitly as Prisma.InvoiceWhereInput
     const where: Prisma.InvoiceWhereInput = {};
-    
+
     if (customerId) {
       where.customerId = customerId;
     }
-    
+
     if (status) {
+      // This will automatically filter by PENDING or PAID if those are the only options sent
       where.status = status;
     }
-    
+
     if (search) {
       where.OR = [
         { invoiceNumber: { contains: search, mode: 'insensitive' } },
-        { 
-          customer: { 
-            name: { contains: search, mode: 'insensitive' } 
-          } 
+        {
+          customer: {
+            name: { contains: search, mode: 'insensitive' }
+          }
         },
         { notes: { contains: search, mode: 'insensitive' } }
       ];
@@ -219,7 +214,6 @@ export async function GET(request: Request) {
       const allInvoiceNumbersForGeneration = await prisma.invoice.findMany({
           select: { invoiceNumber: true },
       });
-      // ⭐ FIX: Type 'invoice' in forEach
       allInvoiceNumbersForGeneration.forEach((invoice: { invoiceNumber: string }) => {
           const match = invoice.invoiceNumber.match(/^INV(\d+)$/);
           if (match) {
@@ -241,7 +235,7 @@ export async function GET(request: Request) {
           },
         },
         orderBy: {
-          createdAt: 'desc', 
+          createdAt: 'desc',
         },
         take: limit,
         skip,
@@ -258,10 +252,10 @@ export async function GET(request: Request) {
         limit,
       },
     });
-  } catch (error: unknown) { // ⭐ FIX: Use 'unknown' for caught error
+  } catch (error: unknown) {
     console.error('Error fetching invoices:', error);
     return NextResponse.json(
-      { error: 'Failed to fetch invoices', details: (error instanceof Error ? error.message : 'Unknown error') }, // ⭐ FIX: Narrow error type
+      { error: 'Failed to fetch invoices', details: (error instanceof Error ? error.message : 'Unknown error') },
       { status: 500 }
     );
   }
