@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { InvoiceStatus, Prisma } from '@prisma/client'; // Import Prisma for types
 
+// Function to generate the next invoice number safely within a transaction
 async function generateNextInvoiceNumber(tx: Prisma.TransactionClient): Promise<string> {
   // Optimized: Query only the latest invoice for the highest number
   const lastInvoice = await tx.invoice.findFirst({
@@ -21,26 +22,26 @@ async function generateNextInvoiceNumber(tx: Prisma.TransactionClient): Promise<
   return `INV${maxNumericInvoice + 1}`;
 }
 
-// async function generateNextPaymentNumber(tx: Prisma.TransactionClient): Promise<string> {
-//   // Optimized: Query only the latest payment for the highest number
-//   const lastPayment = await tx.payment.findFirst({
-//     select: { paymentNumber: true },
-//     orderBy: { paymentNumber: 'desc' }, // Sort by paymentNumber descending to get the latest PAYXYZ
-//   });
+// Function to generate the next payment number safely within a transaction
+async function generateNextPaymentNumber(tx: Prisma.TransactionClient): Promise<string> {
+  // Optimized: Query only the latest payment for the highest number
+  const lastPayment = await tx.payment.findFirst({
+    select: { paymentNumber: true },
+    orderBy: { paymentNumber: 'desc' }, // Sort by paymentNumber descending to get the latest PAYXYZ
+  });
 
-//   if (!lastPayment || !lastPayment.paymentNumber) {
-//     return 'PAY1';
-//   }
+  if (!lastPayment || !lastPayment.paymentNumber) {
+    return 'PAY1';
+  }
 
-//   const match = lastPayment.paymentNumber.match(/^PAY(\d+)$/);
-//   if (match) {
-//     const lastNumber = parseInt(match[1], 10);
-//     return `PAY${lastNumber + 1}`;
-//   }
-//   return 'PAY1';
-// }
+  const match = lastPayment.paymentNumber.match(/^PAY(\d+)$/);
+  if (match) {
+    const lastNumber = parseInt(match[1], 10);
+    return `PAY${lastNumber + 1}`;
+  }
+  return 'PAY1'; // Fallback if format is unexpected (should ideally not happen)
+}
 
-// More efficient approach: Pre-generate payment number outside transaction
 export async function POST(request: Request) {
   try {
     const {
@@ -58,27 +59,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Missing required fields or no items provided' }, { status: 400 });
     }
 
-    // Pre-generate payment number outside transaction if payment is needed
-    let nextPaymentNumber: string | null = null;
-    if ((paidAmount || 0) > 0) {
-      const lastPayment = await prisma.payment.findFirst({
-        orderBy: { createdAt: 'desc' },
-        select: { paymentNumber: true },
-      });
-
-      if (!lastPayment || !lastPayment.paymentNumber) {
-        nextPaymentNumber = 'PAY1';
-      } else {
-        const match = lastPayment.paymentNumber.match(/^PAY(\d+)$/);
-        if (match) {
-          const lastNumber = parseInt(match[1], 10);
-          nextPaymentNumber = `PAY${lastNumber + 1}`;
-        } else {
-          nextPaymentNumber = 'PAY1';
-        }
-      }
-    }
-
     const newInvoice = await prisma.$transaction(async (tx) => {
       const customer = await tx.customer.findUnique({
         where: { id: customerId },
@@ -93,13 +73,20 @@ export async function POST(request: Request) {
       const currentInvoiceBalanceDue = Math.max(0, currentInvoiceNetAmount - (paidAmount || 0));
 
       let status: InvoiceStatus;
-      if (currentInvoiceBalanceDue <= 0.001) {
+      if (currentInvoiceBalanceDue <= 0.001) { // Using a small epsilon for floating point comparison
         status = InvoiceStatus.PAID;
       } else {
         status = InvoiceStatus.PENDING;
       }
 
+      // Generate invoice number within the transaction
       const nextInvoiceNumber = await generateNextInvoiceNumber(tx);
+
+      let nextPaymentNumber: string | null = null;
+      if ((paidAmount || 0) > 0) {
+        // Generate payment number within the transaction for atomicity
+        nextPaymentNumber = await generateNextPaymentNumber(tx);
+      }
 
       // 1. Create the Invoice
       const createdInvoice = await tx.invoice.create({
@@ -138,11 +125,11 @@ export async function POST(request: Request) {
         },
       });
 
-      // 4. Handle Payment (using pre-generated payment number)
-      if ((paidAmount || 0) > 0 && nextPaymentNumber) {
+      // 4. Handle Payment
+      if ((paidAmount || 0) > 0 && nextPaymentNumber) { // Ensure nextPaymentNumber is available
         const newPayment = await tx.payment.create({
           data: {
-            paymentNumber: nextPaymentNumber,
+            paymentNumber: nextPaymentNumber, // Use the generated number
             customerId: customerId,
             amount: paidAmount,
             paymentDate: new Date(),
@@ -161,8 +148,8 @@ export async function POST(request: Request) {
 
       return createdInvoice;
     }, {
-      maxWait: 10000, // 10 seconds to start
-      timeout: 15000, // 15 seconds to complete
+      maxWait: 10000, // 10 seconds to start (default is 2 seconds)
+      timeout: 10000, // 10 seconds for the transaction to complete (default is 5 seconds)
     });
 
     // Fetch complete invoice with relations after transaction
@@ -192,8 +179,7 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const search = searchParams.get('search') || '';
-    // ⭐ IMPORTANT: If 'status' parameter is used, ensure it only ever sends 'PENDING' or 'PAID'
-    const status = searchParams.get('status') as InvoiceStatus | undefined;
+    const status = searchParams.get('status') as InvoiceStatus | undefined; // Cast to InvoiceStatus
     const customerId = searchParams.get('customerId');
     const page = parseInt(searchParams.get('page') || '1', 10);
     const limit = parseInt(searchParams.get('limit') || '10', 10);
@@ -206,7 +192,6 @@ export async function GET(request: Request) {
     }
 
     if (status) {
-      // This will automatically filter by PENDING or PAID if those are the only options sent
       where.status = status;
     }
 
@@ -222,21 +207,25 @@ export async function GET(request: Request) {
       ];
     }
 
+    // The getLatestNumber logic in GET is generally not recommended for
+    // generating *new* numbers in a production system due to race conditions.
+    // It's much safer to do it within a transaction on the POST route.
+    // However, if you're using this solely for display purposes (e.g., suggesting the next number
+    // in the UI before form submission), it can remain, but be aware of its limitations.
     const getLatestNumber = searchParams.get('getLatestNumber');
     if (getLatestNumber === 'true') {
+      const lastInvoice = await prisma.invoice.findFirst({
+        select: { invoiceNumber: true },
+        orderBy: { invoiceNumber: 'desc' },
+      });
+
       let maxNumericInvoice = 0;
-      const allInvoiceNumbersForGeneration = await prisma.invoice.findMany({
-          select: { invoiceNumber: true },
-      });
-      allInvoiceNumbersForGeneration.forEach((invoice: { invoiceNumber: string }) => {
-          const match = invoice.invoiceNumber.match(/^INV(\d+)$/);
-          if (match) {
-              const num = parseInt(match[1], 10);
-              if (!isNaN(num) && num > maxNumericInvoice) {
-                  maxNumericInvoice = num;
-              }
-          }
-      });
+      if (lastInvoice && lastInvoice.invoiceNumber) {
+        const match = lastInvoice.invoiceNumber.match(/^INV(\d+)$/);
+        if (match) {
+          maxNumericInvoice = parseInt(match[1], 10);
+        }
+      }
       return NextResponse.json({ latestNumericInvoice: maxNumericInvoice });
     }
 

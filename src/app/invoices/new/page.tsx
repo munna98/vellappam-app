@@ -1,4 +1,3 @@
-// src/app/invoices/new/page.tsx
 'use client';
 
 import { useState, useMemo, useEffect } from 'react';
@@ -8,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { Plus, X } from 'lucide-react';
+import { Plus, X, Loader2 } from 'lucide-react'; // Import Loader2 for the spinner
 import { Product, Customer, Invoice } from '@prisma/client';
 import { Combobox } from '@/components/ui/combobox';
 import {
@@ -110,8 +109,11 @@ export default function CreateInvoicePage() {
   const [companyInfo, setCompanyInfo] = useState<CompanyInfo | null>(null);
   const [shouldPrint, setShouldPrint] = useState<boolean>(true);
 
+  // New state to manage saving status
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+
   // --- Fetch Customers, Products, Last Invoice, and Company Info on component mount ---
-useEffect(() => {
+  useEffect(() => {
     const fetchData = async () => {
       try {
         const [customersRes, productsRes, lastInvoiceRes, companyInfoRes] = await Promise.all([
@@ -119,7 +121,7 @@ useEffect(() => {
           fetch('/api/products'),
           fetch('/api/invoices?orderBy=createdAt&direction=desc&limit=1'),
           fetch('/api/company-info'),
-        ]); 
+        ]);
 
         if (!customersRes.ok || !productsRes.ok || !lastInvoiceRes.ok || !companyInfoRes.ok) {
           throw new Error('Failed to fetch initial data');
@@ -156,6 +158,7 @@ useEffect(() => {
       resetForm();
     };
   }, [resetForm]);
+
   // Update unitPriceToAdd when a product is selected in the "add product" row
   useEffect(() => {
     if (selectedProductToAdd) {
@@ -221,6 +224,8 @@ useEffect(() => {
       return;
     }
 
+    setIsSaving(true); // Set saving state to true
+
     try {
       const response = await fetch('/api/invoices', {
         method: 'POST',
@@ -277,7 +282,7 @@ useEffect(() => {
           setCompanyInfo(updatedCompanyInfo);
           setShouldPrint(updatedCompanyInfo.defaultPrintOnSave ?? true);
       }
- 
+
       const lastInvoiceRes = await fetch('/api/invoices?orderBy=createdAt&direction=desc&limit=1');
       const lastInvoices = await lastInvoiceRes.json();
       const lastInvNumber = lastInvoices.data.length > 0 ? lastInvoices.data[0].invoiceNumber : null;
@@ -286,9 +291,11 @@ useEffect(() => {
       router.push('/invoices');
       router.refresh();
     } catch (error: unknown) {
-     console.error(error);
+      console.error(error);
       const errorMessage = error instanceof Error ? error.message : 'Error saving invoice.';
       toast.error(errorMessage);
+    } finally {
+      setIsSaving(false); // Always reset saving state
     }
   };
 
@@ -410,6 +417,7 @@ useEffect(() => {
               <Button
                 onClick={handleAddProduct}
                 className="w-full sm:w-auto h-10 flex-shrink-0"
+                disabled={isSaving} // Disable add item button while saving
               >
                 <Plus className="h-4 w-4 mr-2" /> Add Item
               </Button>
@@ -448,6 +456,7 @@ useEffect(() => {
                             )
                           }
                           className="text-right"
+                          disabled={isSaving} // Disable input while saving
                         />
                       </TableCell>
                       <TableCell className="w-[100px]">
@@ -463,6 +472,7 @@ useEffect(() => {
                             )
                           }
                           className="text-right"
+                          disabled={isSaving} // Disable input while saving
                         />
                       </TableCell>
                       <TableCell className="text-right">
@@ -473,6 +483,7 @@ useEffect(() => {
                           variant="ghost"
                           size="icon"
                           onClick={() => removeItem(item.productId)}
+                          disabled={isSaving} // Disable remove button while saving
                         >
                           <X className="h-4 w-4 text-red-500" />
                         </Button>
@@ -494,12 +505,14 @@ useEffect(() => {
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Add any notes for the invoice..."
+                disabled={isSaving} // Disable input while saving
               />
               <div className="flex items-center space-x-2 mt-4">
                 <Checkbox
                   id="shouldPrint"
                   checked={shouldPrint}
                   onCheckedChange={(checked) => setShouldPrint(Boolean(checked))}
+                  disabled={isSaving} // Disable checkbox while saving
                 />
                 <label
                   htmlFor="shouldPrint"
@@ -527,6 +540,7 @@ useEffect(() => {
                   onChange={(e) => setDiscountAmount(parseFloat(e.target.value) || 0)}
                   placeholder="0.00"
                   className="w-[120px] text-right"
+                  disabled={isSaving} // Disable input while saving
                 />
               </div>
               <div className="flex justify-between items-center w-full max-w-xs">
@@ -546,6 +560,7 @@ useEffect(() => {
                   onChange={(e) => setPaidAmount(parseFloat(e.target.value) || 0)}
                   placeholder="0.00"
                   className="w-[120px] text-right"
+                  disabled={isSaving} // Disable input while saving
                 />
               </div>
               <div className="flex justify-between items-center w-full max-w-xs text-primary">
@@ -555,17 +570,31 @@ useEffect(() => {
                 </span>
               </div>
               <div className="flex gap-2 mt-4">
-                <Button variant="outline" onClick={() => {
-                  resetForm();
-                  setDiscountAmount(0);
-                  setPaidAmount(0);
-                  setNotes('');
-                  setInvoiceDate(new Date().toISOString().split('T')[0]);
-                  setShouldPrint(companyInfo?.defaultPrintOnSave ?? true);
-                }}>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    resetForm();
+                    setDiscountAmount(0);
+                    setPaidAmount(0);
+                    setNotes('');
+                    setInvoiceDate(new Date().toISOString().split('T')[0]);
+                    setShouldPrint(companyInfo?.defaultPrintOnSave ?? true);
+                  }}
+                  disabled={isSaving} // Disable reset button while saving
+                >
                   Reset Form
                 </Button>
-                <Button onClick={handleSaveInvoice}>Save Invoice</Button>
+                {/* --- The Save Invoice Button with Saving State --- */}
+                <Button onClick={handleSaveInvoice} disabled={isSaving}>
+                  {isSaving ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    'Save Invoice'
+                  )}
+                </Button>
               </div>
             </div>
           </div>
