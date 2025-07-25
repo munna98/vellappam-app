@@ -40,12 +40,13 @@ async function generateNextPaymentNumber(tx: Prisma.TransactionClient): Promise<
   return 'PAY1';
 }
 
+// More efficient approach: Pre-generate payment number outside transaction
 export async function POST(request: Request) {
   try {
     const {
       customerId,
       invoiceDate,
-      items, // This array contains the product details from the frontend
+      items,
       totalAmount,
       discountAmount,
       paidAmount,
@@ -55,6 +56,27 @@ export async function POST(request: Request) {
     // Basic validation
     if (!customerId || !invoiceDate || !items || items.length === 0) {
       return NextResponse.json({ error: 'Missing required fields or no items provided' }, { status: 400 });
+    }
+
+    // Pre-generate payment number outside transaction if payment is needed
+    let nextPaymentNumber: string | null = null;
+    if ((paidAmount || 0) > 0) {
+      const lastPayment = await prisma.payment.findFirst({
+        orderBy: { createdAt: 'desc' },
+        select: { paymentNumber: true },
+      });
+
+      if (!lastPayment || !lastPayment.paymentNumber) {
+        nextPaymentNumber = 'PAY1';
+      } else {
+        const match = lastPayment.paymentNumber.match(/^PAY(\d+)$/);
+        if (match) {
+          const lastNumber = parseInt(match[1], 10);
+          nextPaymentNumber = `PAY${lastNumber + 1}`;
+        } else {
+          nextPaymentNumber = 'PAY1';
+        }
+      }
     }
 
     const newInvoice = await prisma.$transaction(async (tx) => {
@@ -71,9 +93,9 @@ export async function POST(request: Request) {
       const currentInvoiceBalanceDue = Math.max(0, currentInvoiceNetAmount - (paidAmount || 0));
 
       let status: InvoiceStatus;
-      if (currentInvoiceBalanceDue <= 0.001) { // Use epsilon for floating point comparison
+      if (currentInvoiceBalanceDue <= 0.001) {
         status = InvoiceStatus.PAID;
-      } else { // Otherwise, it's PENDING (even if partially paid, as there's still a balance)
+      } else {
         status = InvoiceStatus.PENDING;
       }
 
@@ -85,27 +107,19 @@ export async function POST(request: Request) {
           invoiceNumber: nextInvoiceNumber,
           customerId,
           invoiceDate: new Date(invoiceDate),
-          totalAmount, // Subtotal
+          totalAmount,
           discountAmount: discountAmount || 0,
           netAmount: currentInvoiceNetAmount,
           paidAmount: paidAmount || 0,
           balanceDue: currentInvoiceBalanceDue,
-          status, // Use the new status
+          status,
           notes,
-        },
-        include: {
-          customer: true,
-          items: {
-            include: {
-              product: true,
-            },
-          },
         },
       });
 
-      // 2. Create Invoice Items and link them to the new invoice
+      // 2. Create Invoice Items
       const invoiceItemsToCreate = items.map((item: { productId: string; quantity: number; unitPrice: number; total: number }) => ({
-        invoiceId: createdInvoice.id, // Link to the newly created invoice
+        invoiceId: createdInvoice.id,
         productId: item.productId,
         quantity: item.quantity,
         unitPrice: item.unitPrice,
@@ -116,19 +130,6 @@ export async function POST(request: Request) {
         data: invoiceItemsToCreate,
       });
 
-      // Re-fetch the created invoice with its now associated items to return a complete object
-      const fullCreatedInvoice = await tx.invoice.findUnique({
-          where: { id: createdInvoice.id },
-          include: {
-              customer: true,
-              items: {
-                  include: {
-                      product: true,
-                  },
-              },
-          },
-      });
-
       // 3. Update Customer Balance
       await tx.customer.update({
         where: { id: customerId },
@@ -137,9 +138,8 @@ export async function POST(request: Request) {
         },
       });
 
-      // 4. Handle Payment and Allocation (if paidAmount > 0)
-      if ((paidAmount || 0) > 0) {
-        const nextPaymentNumber = await generateNextPaymentNumber(tx);
+      // 4. Handle Payment (using pre-generated payment number)
+      if ((paidAmount || 0) > 0 && nextPaymentNumber) {
         const newPayment = await tx.payment.create({
           data: {
             paymentNumber: nextPaymentNumber,
@@ -159,11 +159,26 @@ export async function POST(request: Request) {
         });
       }
 
-      // Return the complete invoice object with its items
-      return fullCreatedInvoice;
+      return createdInvoice;
+    }, {
+      maxWait: 10000, // 10 seconds to start
+      timeout: 15000, // 15 seconds to complete
     });
 
-    return NextResponse.json(newInvoice);
+    // Fetch complete invoice with relations after transaction
+    const fullInvoice = await prisma.invoice.findUnique({
+      where: { id: newInvoice.id },
+      include: {
+        customer: true,
+        items: {
+          include: {
+            product: true,
+          },
+        },
+      },
+    });
+
+    return NextResponse.json(fullInvoice);
   } catch (error: unknown) {
     console.error('Error creating invoice:', error);
     return NextResponse.json(
