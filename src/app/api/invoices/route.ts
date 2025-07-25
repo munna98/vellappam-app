@@ -21,24 +21,24 @@ async function generateNextInvoiceNumber(tx: Prisma.TransactionClient): Promise<
   return `INV${maxNumericInvoice + 1}`;
 }
 
-async function generateNextPaymentNumber(tx: Prisma.TransactionClient): Promise<string> {
-  // Optimized: Query only the latest payment for the highest number
-  const lastPayment = await tx.payment.findFirst({
-    select: { paymentNumber: true },
-    orderBy: { paymentNumber: 'desc' }, // Sort by paymentNumber descending to get the latest PAYXYZ
-  });
+// async function generateNextPaymentNumber(tx: Prisma.TransactionClient): Promise<string> {
+//   // Optimized: Query only the latest payment for the highest number
+//   const lastPayment = await tx.payment.findFirst({
+//     select: { paymentNumber: true },
+//     orderBy: { paymentNumber: 'desc' }, // Sort by paymentNumber descending to get the latest PAYXYZ
+//   });
 
-  if (!lastPayment || !lastPayment.paymentNumber) {
-    return 'PAY1';
-  }
+//   if (!lastPayment || !lastPayment.paymentNumber) {
+//     return 'PAY1';
+//   }
 
-  const match = lastPayment.paymentNumber.match(/^PAY(\d+)$/);
-  if (match) {
-    const lastNumber = parseInt(match[1], 10);
-    return `PAY${lastNumber + 1}`;
-  }
-  return 'PAY1';
-}
+//   const match = lastPayment.paymentNumber.match(/^PAY(\d+)$/);
+//   if (match) {
+//     const lastNumber = parseInt(match[1], 10);
+//     return `PAY${lastNumber + 1}`;
+//   }
+//   return 'PAY1';
+// }
 
 // More efficient approach: Pre-generate payment number outside transaction
 export async function POST(request: Request) {
