@@ -52,128 +52,144 @@ export async function PUT(request: NextRequest) {
     }
 
     // Start a Prisma transaction for atomicity
-    const updatedInvoice = await prisma.$transaction(async (tx) => {
-      // 1. Fetch the existing invoice and its customer with necessary details
-      const existingInvoice = await tx.invoice.findUnique({
-        where: { id: invoiceId },
-        include: {
-          customer: true,
-          items: true,
-          paymentAllocations: true,
-        },
-      });
-
-      if (!existingInvoice) {
-        throw new Error('Invoice not found');
-      }
-
-      // Store old values for comparison
-      const oldInvoiceBalanceDue = existingInvoice.balanceDue;
-      const oldInvoicePaidAmount = existingInvoice.paidAmount;
-
-      // Calculate new net amount and balance due for THIS invoice
-      const newInvoiceNetAmount = Math.max(0, totalAmount - (discountAmount || 0));
-      const newInvoiceBalanceDue = Math.max(0, newInvoiceNetAmount - (paidAmount || 0));
-
-      // Determine new invoice status
-      let newStatus: InvoiceStatus;
-      if (newInvoiceBalanceDue <= 0.001) { // If balance is zero or negligible, it's PAID
-        newStatus = InvoiceStatus.PAID;
-      } else { // Otherwise, it's PENDING (even if partially paid, as there's still a balance)
-        newStatus = InvoiceStatus.PENDING;
-      }
-
-      // 2. Adjust customer's overall balance
-      const balanceDueChange = newInvoiceBalanceDue - oldInvoiceBalanceDue;
-
-      await tx.customer.update({
-        where: { id: existingInvoice.customerId },
-        data: {
-          balance: existingInvoice.customer.balance + balanceDueChange,
-        },
-      });
-
-      // 3. Sync invoice items (delete old, create new, update existing)
-      const existingItemIds = new Set(existingInvoice.items.map(item => item.id));
-      const incomingItemIds = new Set(items.map((item: { id?: string }) => item.id).filter(Boolean));
-
-      const itemsToDelete = existingInvoice.items.filter(item => !incomingItemIds.has(item.id));
-
-      if (itemsToDelete.length > 0) {
-        await tx.invoiceItem.deleteMany({
-          where: { id: { in: itemsToDelete.map(item => item.id) } },
+    const updatedInvoice = await prisma.$transaction(
+      async (tx) => {
+        // 1. Fetch the existing invoice and its customer with necessary details
+        const existingInvoice = await tx.invoice.findUnique({
+          where: { id: invoiceId },
+          include: {
+            customer: true,
+            items: true,
+            paymentAllocations: true,
+          },
         });
-      }
 
-      for (const item of items as { id?: string; productId: string; quantity: number; unitPrice: number; total: number }[]) {
-        const data = {
-          productId: item.productId,
-          quantity: item.quantity,
-          unitPrice: item.unitPrice,
-          total: item.total,
-        };
-        if (item.id && existingItemIds.has(item.id)) {
-          await tx.invoiceItem.update({
-            where: { id: item.id },
-            data: data,
-          });
-        } else {
-          await tx.invoiceItem.create({
-            data: { ...data, invoiceId: invoiceId },
+        if (!existingInvoice) {
+          throw new Error('Invoice not found');
+        }
+
+        // Store old values for comparison
+        const oldInvoiceBalanceDue = existingInvoice.balanceDue;
+        const oldInvoicePaidAmount = existingInvoice.paidAmount;
+
+        // Calculate new net amount and balance due for THIS invoice
+        const newInvoiceNetAmount = Math.max(0, totalAmount - (discountAmount || 0));
+        const newInvoiceBalanceDue = Math.max(0, newInvoiceNetAmount - (paidAmount || 0));
+
+        // Determine new invoice status
+        let newStatus: InvoiceStatus;
+        if (newInvoiceBalanceDue <= 0.001) { // If balance is zero or negligible, it's PAID
+          newStatus = InvoiceStatus.PAID;
+        } else { // Otherwise, it's PENDING (even if partially paid, as there's still a balance)
+          newStatus = InvoiceStatus.PENDING;
+        }
+
+        // Optional: Add validation for paidAmount to prevent decrease if not intended
+        // If you intend `paidAmount` to only increase or stay same, uncomment this:
+        // if ((paidAmount || 0) < oldInvoicePaidAmount) {
+        //   throw new Error("The new total paid amount cannot be less than the existing paid amount.");
+        // }
+
+        // 2. Adjust customer's overall balance
+        const balanceDueChange = newInvoiceBalanceDue - oldInvoiceBalanceDue;
+
+        await tx.customer.update({
+          where: { id: existingInvoice.customerId },
+          data: {
+            balance: existingInvoice.customer.balance + balanceDueChange,
+          },
+        });
+
+        // 3. Sync invoice items (delete old, create new, update existing)
+        const existingItemIds = new Set(existingInvoice.items.map(item => item.id));
+        const incomingItemIds = new Set(items.map((item: { id?: string }) => item.id).filter(Boolean));
+
+        const itemsToDelete = existingInvoice.items.filter(item => !incomingItemIds.has(item.id));
+
+        if (itemsToDelete.length > 0) {
+          await tx.invoiceItem.deleteMany({
+            where: { id: { in: itemsToDelete.map(item => item.id) } },
           });
         }
-      }
 
-      // 4. Handle Payment creation/allocation if paidAmount has increased
-      const paymentDifference = (paidAmount || 0) - oldInvoicePaidAmount;
+        // Use Promise.all to run item updates/creates in parallel for performance, if many items
+        await Promise.all(
+          (items as { id?: string; productId: string; quantity: number; unitPrice: number; total: number }[]).map(async (item) => {
+            const data = {
+              productId: item.productId,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              total: item.total,
+            };
+            if (item.id && existingItemIds.has(item.id)) {
+              await tx.invoiceItem.update({
+                where: { id: item.id },
+                data: data,
+              });
+            } else {
+              await tx.invoiceItem.create({
+                data: { ...data, invoiceId: invoiceId },
+              });
+            }
+          })
+        );
 
-      if (paymentDifference > 0) {
-        const nextPaymentNumber = await generateNextPaymentNumber(tx);
-        const newPayment = await tx.payment.create({
+
+        // 4. Handle Payment creation/allocation if paidAmount has increased
+        const paymentDifference = (paidAmount || 0) - oldInvoicePaidAmount;
+
+        if (paymentDifference > 0) {
+          const nextPaymentNumber = await generateNextPaymentNumber(tx);
+          const newPayment = await tx.payment.create({
+            data: {
+              paymentNumber: nextPaymentNumber,
+              customerId: existingInvoice.customerId,
+              amount: paymentDifference,
+              paymentDate: new Date(),
+              notes: `Additional payment for Invoice ${existingInvoice.invoiceNumber} during edit.`,
+            },
+          });
+
+          await tx.paymentAllocation.create({
+            data: {
+              paymentId: newPayment.id,
+              invoiceId: existingInvoice.id,
+              allocatedAmount: paymentDifference,
+            },
+          });
+        }
+
+        // 5. Update the Invoice record itself
+        const updatedInvoiceRecord = await tx.invoice.update({
+          where: { id: invoiceId },
           data: {
-            paymentNumber: nextPaymentNumber,
-            customerId: existingInvoice.customerId,
-            amount: paymentDifference,
-            paymentDate: new Date(),
-            notes: `Additional payment for Invoice ${existingInvoice.invoiceNumber} during edit.`,
+            customerId,
+            invoiceDate: new Date(invoiceDate),
+            totalAmount,
+            discountAmount: discountAmount || 0,
+            netAmount: newInvoiceNetAmount,
+            paidAmount: paidAmount || 0,
+            balanceDue: newInvoiceBalanceDue,
+            status: newStatus, // Use the new status
+            notes,
           },
-        });
-
-        await tx.paymentAllocation.create({
-          data: {
-            paymentId: newPayment.id,
-            invoiceId: existingInvoice.id,
-            allocatedAmount: paymentDifference,
-          },
-        });
-      }
-
-      // 5. Update the Invoice record itself
-      const updatedInvoiceRecord = await tx.invoice.update({
-        where: { id: invoiceId },
-        data: {
-          customerId,
-          invoiceDate: new Date(invoiceDate),
-          totalAmount,
-          discountAmount: discountAmount || 0,
-          netAmount: newInvoiceNetAmount,
-          paidAmount: paidAmount || 0,
-          balanceDue: newInvoiceBalanceDue,
-          status: newStatus, // Use the new status
-          notes,
-        },
-        include: {
-          customer: true,
-          items: {
-            include: {
-              product: true,
+          include: {
+            customer: true,
+            items: {
+              include: {
+                product: true,
+              },
             },
           },
-        },
-      });
+        });
 
-      return updatedInvoiceRecord;
-    });
+        return updatedInvoiceRecord;
+      },
+      {
+        maxWait: 10000, // Increase maxWait to 10 seconds (time to acquire connection)
+        timeout: 10000, // Increase timeout to 10 seconds (time for transaction to complete)
+      }
+    );
 
     return NextResponse.json(updatedInvoice);
   } catch (error: unknown) {
