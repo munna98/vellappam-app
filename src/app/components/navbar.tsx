@@ -8,9 +8,10 @@ import { Button } from "@/components/ui/button";
 import {
   Sheet,
   SheetContent,
-  SheetHeader,
-  SheetTitle,
+  SheetHeader, // Re-import SheetHeader
+  SheetTitle,   // Re-import SheetTitle
   SheetTrigger,
+  SheetClose,
 } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -20,6 +21,7 @@ import {
   Users,
   Briefcase,
   ReceiptText,
+  Settings,
 } from "lucide-react";
 
 export function Navbar() {
@@ -31,7 +33,7 @@ export function Navbar() {
     { name: "Products", href: "/products", icon: Package2 },
     { name: "Invoices", href: "/invoices", icon: DollarSign },
     { name: "Payments", href: "/payments", icon: ReceiptText },
-    { name: "Settings", href: "/settings", icon: ReceiptText },
+    { name: "Settings", href: "/settings", icon: Settings },
   ];
 
   return (
@@ -69,8 +71,9 @@ export function Navbar() {
               </Button>
             </SheetTrigger>
             <SheetContent side="left">
+              {/* Re-added SheetHeader and SheetTitle for accessibility */}
               <SheetHeader>
-                <SheetTitle>Navigation</SheetTitle>
+                <SheetTitle className="sr-only">Mobile Navigation</SheetTitle>
               </SheetHeader>
               <nav className="grid gap-6 text-lg font-medium pt-4">
                 <Link
@@ -82,19 +85,21 @@ export function Navbar() {
                 </Link>
                 <Separator />
                 {navItems.map((item) => (
-                  <Link
-                    key={item.name}
-                    href={item.href}
-                    className={cn(
-                      "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:bg-muted",
-                      pathname === item.href
-                        ? "bg-muted text-foreground"
-                        : "text-muted-foreground"
-                    )}
-                  >
-                    <item.icon className="h-5 w-5" />
-                    {item.name}
-                  </Link>
+                  // Wrap each Link with SheetClose
+                  <SheetClose asChild key={item.name}> 
+                    <Link
+                      href={item.href}
+                      className={cn(
+                        "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:bg-muted",
+                        pathname === item.href
+                          ? "bg-muted text-foreground"
+                          : "text-muted-foreground"
+                      )}
+                    >
+                      <item.icon className="h-5 w-5" />
+                      {item.name}
+                    </Link>
+                  </SheetClose>
                 ))}
               </nav>
             </SheetContent>
