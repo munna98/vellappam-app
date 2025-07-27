@@ -20,7 +20,7 @@ import {
 } from '@/components/ui/table';
 import { Card, CardContent } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
-import { Checkbox } from '@/components/ui/checkbox'; 
+import { Checkbox } from '@/components/ui/checkbox';
 
 import { printReactComponent } from '@/lib/print-utils';
 import InvoicePrintTemplate from '@/components/invoice-print-template';
@@ -80,27 +80,28 @@ type InvoiceWithDetails = Invoice & {
   items: InvoiceItemWithProduct[];
 };
 
-
 export default function CreateInvoicePage() {
   const router = useRouter();
   const {
     selectedCustomer,
     invoiceItems,
     totalAmount,
+    discountAmount, // <--- Get from store
+    paidAmount,     // <--- Get from store
+    notes,          // <--- Get from store
     setCustomer,
     addItem,
     updateItemDetails,
     removeItem,
+    setDiscountAmount, // <--- Use store action
+    setPaidAmount,     // <--- Use store action
+    setNotes,          // <--- Use store action
     resetForm,
   } = useInvoiceStore();
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
-  const [notes, setNotes] = useState('');
   const [invoiceNumberDisplay, setInvoiceNumberDisplay] = useState<string>('');
-  const [discountAmount, setDiscountAmount] = useState<number>(0);
-  const [paidAmount, setPaidAmount] = useState<number>(0);
-
   const [selectedProductToAdd, setSelectedProductToAdd] = useState<string | null>(null);
   const [quantityToAdd, setQuantityToAdd] = useState<number>(1);
   const [unitPriceToAdd, setUnitPriceToAdd] = useState<number>(0);
@@ -156,8 +157,11 @@ export default function CreateInvoicePage() {
     // Reset form state when component unmounts
     return () => {
       resetForm();
+      setDiscountAmount(0); // Also reset these
+      setPaidAmount(0);     // when unmounting
+      setNotes('');         // to ensure clean state on re-entry
     };
-  }, [resetForm]);
+  }, [resetForm, setDiscountAmount, setPaidAmount, setNotes]); // Add store actions to dependency array
 
   // Update unitPriceToAdd when a product is selected in the "add product" row
   useEffect(() => {
@@ -214,6 +218,7 @@ export default function CreateInvoicePage() {
       return;
     }
 
+    // Now, discountAmount and paidAmount come directly from the store's state
     if (discountAmount < 0 || discountAmount > totalAmount) {
       toast.error('Discount amount must be between 0 and the subtotal.');
       return;
@@ -239,10 +244,10 @@ export default function CreateInvoicePage() {
             unitPrice: item.unitPrice,
             total: item.total,
           })),
-          totalAmount: totalAmount, 
+          totalAmount: totalAmount,
           discountAmount: discountAmount,
-          paidAmount: paidAmount, 
-          notes,
+          paidAmount: paidAmount,
+          notes, // notes also directly from store
         }),
       });
 
@@ -268,9 +273,9 @@ export default function CreateInvoicePage() {
       }
 
       resetForm();
-      setDiscountAmount(0);
-      setPaidAmount(0);
-      setNotes('');
+      setDiscountAmount(0); // Reset these using the store actions
+      setPaidAmount(0);     //
+      setNotes('');         //
       setInvoiceDate(new Date().toISOString().split('T')[0]);
 
       // After saving, re-fetch settings to get the latest defaultPrintOnSave
@@ -347,20 +352,6 @@ export default function CreateInvoicePage() {
               </div>
             </div>
           </div>
-          {selectedCustomer && (
-            <div className="mt-2 p-4 border rounded-md bg-muted/50">
-              <p className="font-semibold">{selectedCustomer.name}</p>
-              <p className="text-sm text-muted-foreground">
-                {selectedCustomer.address}
-              </p>
-              <p className="text-sm text-muted-foreground">
-                Phone: {selectedCustomer.phone}
-              </p>
-              <p className="text-sm font-bold mt-2">
-                Current Customer Balance: ₹{selectedCustomer.balance.toFixed(2)}
-              </p>
-            </div>
-          )}
 
           <Separator />
 
@@ -435,7 +426,8 @@ export default function CreateInvoicePage() {
                 </TableHeader>
                 <TableBody>
                   {invoiceItems.map((item) => (
-                    <TableRow key={item.productId}>
+                    // Using item.id as key is more robust as it's unique even for new unsaved items
+                    <TableRow key={item.id}>
                       <TableCell>{item.productCode}</TableCell>
                       <TableCell className="font-medium">
                         {item.productName}
@@ -448,6 +440,7 @@ export default function CreateInvoicePage() {
                           value={item.unitPrice === 0 ? '' : item.unitPrice}
                           onChange={(e) =>
                             updateItemDetails(
+                              item.id, // Pass item.id (temporary or actual)
                               item.productId,
                               undefined,
                               parseFloat(e.target.value) || 0
@@ -464,6 +457,7 @@ export default function CreateInvoicePage() {
                           value={item.quantity === 0 ? '' : item.quantity}
                           onChange={(e) =>
                             updateItemDetails(
+                              item.id, // Pass item.id (temporary or actual)
                               item.productId,
                               parseInt(e.target.value) || 0,
                               undefined
@@ -480,7 +474,7 @@ export default function CreateInvoicePage() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          onClick={() => removeItem(item.productId)}
+                          onClick={() => removeItem(item.id!)} // item.id is guaranteed to exist here
                           disabled={isSaving} // Disable remove button while saving
                         >
                           <X className="h-4 w-4 text-red-500" />
@@ -500,8 +494,8 @@ export default function CreateInvoicePage() {
               <Label htmlFor="notes">Notes</Label>
               <Input
                 id="notes"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
+                value={notes} // <--- Value from store
+                onChange={(e) => setNotes(e.target.value)} // <--- Update via store action
                 placeholder="Add any notes for the invoice..."
                 disabled={isSaving} // Disable input while saving
               />
@@ -534,8 +528,8 @@ export default function CreateInvoicePage() {
                   type="number"
                   min="0"
                   step="0.01"
-                  value={discountAmount === 0 ? '' : discountAmount}
-                  onChange={(e) => setDiscountAmount(parseFloat(e.target.value) || 0)}
+                  value={discountAmount === 0 ? '' : discountAmount} // <--- Value from store
+                  onChange={(e) => setDiscountAmount(parseFloat(e.target.value) || 0)} // <--- Update via store action
                   placeholder="0.00"
                   className="w-[120px] text-right"
                   disabled={isSaving} // Disable input while saving
@@ -554,8 +548,8 @@ export default function CreateInvoicePage() {
                   type="number"
                   min="0"
                   step="0.01"
-                  value={paidAmount === 0 ? '' : paidAmount}
-                  onChange={(e) => setPaidAmount(parseFloat(e.target.value) || 0)}
+                  value={paidAmount === 0 ? '' : paidAmount} // <--- Value from store
+                  onChange={(e) => setPaidAmount(parseFloat(e.target.value) || 0)} // <--- Update via store action
                   placeholder="0.00"
                   className="w-[120px] text-right"
                   disabled={isSaving} // Disable input while saving
@@ -572,9 +566,9 @@ export default function CreateInvoicePage() {
                   variant="outline"
                   onClick={() => {
                     resetForm();
-                    setDiscountAmount(0);
-                    setPaidAmount(0);
-                    setNotes('');
+                    setDiscountAmount(0); // Reset these using the store actions
+                    setPaidAmount(0);     //
+                    setNotes('');         //
                     setInvoiceDate(new Date().toISOString().split('T')[0]);
                     setShouldPrint(companyInfo?.defaultPrintOnSave ?? true);
                   }}

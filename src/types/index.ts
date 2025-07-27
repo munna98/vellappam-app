@@ -12,7 +12,7 @@ const fullPaymentWithRelations = Prisma.validator<Prisma.PaymentDefaultArgs>()({
     customer: true,
     paymentAllocations: {
       include: {
-        invoice: true,
+        invoice: true, 
       },
     },
   },

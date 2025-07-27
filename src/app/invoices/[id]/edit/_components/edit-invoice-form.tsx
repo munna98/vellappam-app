@@ -23,17 +23,8 @@ import { Separator } from '@/components/ui/separator';
 import { Checkbox } from '@/components/ui/checkbox';
 import { printReactComponent } from '@/lib/print-utils';
 import InvoicePrintTemplate from '@/components/invoice-print-template';
-import { FullInvoice, FullInvoiceItem } from '@/types';
-
-interface FormInvoiceItem {
-  id: string;
-  productId: string;
-  productName: string;
-  productCode: string;
-  quantity: number;
-  unitPrice: number;
-  total: number;
-}
+import { FullInvoice } from '@/types'; // Only FullInvoice is needed directly now
+import { useInvoiceStore } from '@/store/invoice-store'; // ⭐ Import your store
 
 interface EditInvoiceFormProps {
   initialInvoice: FullInvoice;
@@ -44,28 +35,57 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
-  const [invoiceDate, setInvoiceDate] = useState<string>(new Date(initialInvoice.invoiceDate).toISOString().split('T')[0]);
-  const [notes, setNotes] = useState(initialInvoice.notes || '');
-  const [items, setItems] = useState<FormInvoiceItem[]>(
-    initialInvoice.items.map((item: FullInvoiceItem) => ({
-      id: item.id,
-      productId: item.productId,
-      productName: item.product?.name || 'Unknown Product',
-      productCode: item.product?.code || 'N/A',
-      quantity: item.quantity,
-      unitPrice: item.unitPrice,
-      total: item.total,
-    }))
-  );
-  const [discountAmount, setDiscountAmount] = useState<number>(initialInvoice.discountAmount);
-  const [paidAmount, setPaidAmount] = useState<number>(initialInvoice.paidAmount);
-  const [selectedProductToAdd, setSelectedProductToAdd] = useState<string | null>(null);
-  const [quantityToAdd, setQuantityToAdd] = useState<number>(1);
-  const [unitPriceToAdd, setUnitPriceToAdd] = useState<number>(0);
   const [companyInfo, setCompanyInfo] = useState<CompanyInfo | null>(null);
   const [shouldPrint, setShouldPrint] = useState<boolean>(true);
   const [customerBalanceBeforeThisInvoice, setCustomerBalanceBeforeThisInvoice] = useState<number>(0);
+
+  // ⭐ Get state and actions from the Zustand store
+  const {
+    selectedCustomer,
+    invoiceItems,
+    totalAmount: subtotal, // Rename totalAmount from store to subtotal for clarity in component
+    discountAmount,
+    paidAmount,
+    notes,
+    setCustomer,
+    addItem,
+    updateItemDetails,
+    removeItem,
+    setDiscountAmount,
+    setPaidAmount,
+    setNotes,
+    loadInvoice, // New action
+    resetForm, // New action to reset
+  } = useInvoiceStore();
+
+  // Local state for product addition UI
+  const [selectedProductToAdd, setSelectedProductToAdd] = useState<string | null>(null);
+  const [quantityToAdd, setQuantityToAdd] = useState<number>(1);
+  const [unitPriceToAdd, setUnitPriceToAdd] = useState<number>(0);
+
+  // Initialize store with initialInvoice data on mount
+  useEffect(() => {
+    if (initialInvoice) {
+      loadInvoice({
+        customer: initialInvoice.customer,
+        items: initialInvoice.items,
+        discountAmount: initialInvoice.discountAmount,
+        paidAmount: initialInvoice.paidAmount,
+        notes: initialInvoice.notes,
+      });
+      // Set initial invoice date separately as it's not part of the store's core invoice state
+      setInvoiceDate(new Date(initialInvoice.invoiceDate).toISOString().split('T')[0]);
+    }
+
+    // Cleanup store on unmount if navigating away
+    return () => {
+      resetForm();
+    };
+  }, [initialInvoice, loadInvoice, resetForm]);
+
+  // Invoice Date is managed locally as it's not part of item/amount calculation
+  const [invoiceDate, setInvoiceDate] = useState<string>(new Date().toISOString().split('T')[0]);
+
 
   useEffect(() => {
     const fetchData = async () => {
@@ -89,12 +109,14 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
         setCustomers(customersData);
         setProducts(productsData);
         setCompanyInfo(companyInfoData);
-        setSelectedCustomer(customersData.find(c => c.id === initialInvoice.customerId) || null);
-        setShouldPrint(companyInfoData.defaultPrintOnSave ?? true);
 
+        // Calculate customer balance before this invoice
         const customerActualCurrentBalance = customersData.find(c => c.id === initialInvoice.customerId)?.balance || 0;
         const calculatedBalanceBeforeThisInvoice = customerActualCurrentBalance - initialInvoice.balanceDue;
         setCustomerBalanceBeforeThisInvoice(calculatedBalanceBeforeThisInvoice);
+
+        // Set initial print preference from company info
+        setShouldPrint(companyInfoData.defaultPrintOnSave ?? true);
 
       } catch (error) {
         console.error('Error fetching initial data:', error);
@@ -104,7 +126,8 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
       }
     };
     fetchData();
-  }, [initialInvoice.customerId, initialInvoice.balanceDue]);
+  }, [initialInvoice.customerId, initialInvoice.balanceDue]); // Dependencies for initial data fetch
+
 
   useEffect(() => {
     if (selectedProductToAdd) {
@@ -118,26 +141,21 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
   }, [selectedProductToAdd, products]);
 
   const handleItemUpdate = (
-    itemId: string,
+    itemId: string | undefined, // Now takes optional ID (for new items)
+    productId: string, // Product ID is also needed to find the item in the store
     field: 'quantity' | 'unitPrice',
     value: number
   ) => {
-    setItems((prevItems) =>
-      prevItems.map((item) => {
-        if (item.id === itemId) {
-          const updatedItem = { ...item, [field]: value };
-          if (field === 'quantity' || field === 'unitPrice') {
-            updatedItem.total = (updatedItem.quantity || 0) * (updatedItem.unitPrice || 0);
-          }
-          return updatedItem;
-        }
-        return item;
-      })
+    updateItemDetails(
+      itemId,
+      productId,
+      field === 'quantity' ? value : undefined,
+      field === 'unitPrice' ? value : undefined
     );
   };
 
   const handleRemoveItem = (itemId: string) => {
-    setItems((prevItems) => prevItems.filter((item) => item.id !== itemId));
+    removeItem(itemId);
   };
 
   const handleAddProduct = () => {
@@ -148,33 +166,18 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
 
     const product = products.find((p) => p.id === selectedProductToAdd);
     if (product) {
-      const existingItem = items.find(item => item.productId === product.id);
+      const existingItem = invoiceItems.find(item => item.productId === product.id);
       if (existingItem) {
         toast.error('Product already added. Edit the existing item in the table.');
         return;
       }
 
-      setItems((prevItems) => [
-        ...prevItems,
-        {
-          id: crypto.randomUUID(),
-          productId: product.id,
-          productName: product.name,
-          productCode: product.code,
-          quantity: quantityToAdd,
-          unitPrice: unitPriceToAdd,
-          total: quantityToAdd * unitPriceToAdd,
-        },
-      ]);
+      addItem(product, quantityToAdd, unitPriceToAdd); // Use store's addItem
       setSelectedProductToAdd(null);
       setQuantityToAdd(1);
       setUnitPriceToAdd(0);
     }
   };
-
-  const subtotal = useMemo(() => {
-    return items.reduce((sum, item) => sum + item.total, 0);
-  }, [items]);
 
   const netAmount = useMemo(() => {
     return Math.max(0, subtotal - discountAmount);
@@ -189,12 +192,12 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
       toast.error('Please select a customer.');
       return;
     }
-    if (items.length === 0) {
+    if (invoiceItems.length === 0) {
       toast.error('Please add at least one invoice item.');
       return;
     }
 
-    const hasInvalidItems = items.some(item =>
+    const hasInvalidItems = invoiceItems.some(item =>
       !item.productId || item.quantity <= 0 || item.unitPrice <= 0
     );
 
@@ -222,10 +225,13 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
         body: JSON.stringify({
           customerId: selectedCustomer.id,
           invoiceDate,
-          items: items.map((item) => {
+          items: invoiceItems.map((item) => {
+            // Only send `id` if it's an existing item (not a temporary UUID)
             const { id, ...rest } = item;
             return {
               ...rest,
+              // Check if the item's ID exists in the original invoice items
+              // This is crucial to distinguish new items from existing ones to be updated.
               id: initialInvoice.items.some(initialItem => initialItem.id === id) ? id : undefined,
             };
           }),
@@ -303,9 +309,7 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
                 <Combobox
                   items={customers}
                   value={selectedCustomer?.id || null}
-                  onSelect={(id) =>
-                    setSelectedCustomer(customers.find((c) => c.id === id) || null)
-                  }
+                  onSelect={(id) => setCustomer(customers.find((c) => c.id === id) || null)} // ⭐ Use store's setCustomer
                   placeholder="Select a customer..."
                   emptyMessage="No customer found."
                   searchPlaceholder="Search customers..."
@@ -319,20 +323,11 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
             </div>
           </div>
 
-          {selectedCustomer && (
-            <div className="mt-2 p-4 border rounded-md bg-muted/50">
-              <p className="font-semibold">{selectedCustomer.name}</p>
-              <p className="text-sm text-muted-foreground">{selectedCustomer.address}</p>
-              <p className="text-sm text-muted-foreground">Phone: {selectedCustomer.phone}</p>
-              <p className="text-sm font-bold mt-2">Current Customer Balance: ₹{selectedCustomer.balance.toFixed(2)}</p>
-            </div>
-          )}
-
           <Separator />
 
           <div className="space-y-4">
             <h3 className="text-lg font-semibold">Invoice Items</h3>
-            {items.length > 0 ? (
+            {invoiceItems.length > 0 ? ( // ⭐ Use invoiceItems from store
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -345,7 +340,7 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {items.map((item) => (
+                  {invoiceItems.map((item) => ( // ⭐ Use invoiceItems from store
                     <TableRow key={item.id}>
                       <TableCell>{item.productCode}</TableCell>
                       <TableCell className="font-medium">{item.productName}</TableCell>
@@ -356,7 +351,7 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
                           step="0.01"
                           value={item.unitPrice === 0 ? '' : item.unitPrice}
                           onChange={(e) =>
-                            handleItemUpdate(item.id, 'unitPrice', parseFloat(e.target.value) || 0)
+                            handleItemUpdate(item.id, item.productId, 'unitPrice', parseFloat(e.target.value) || 0) // ⭐ Pass item.productId
                           }
                           className="text-right"
                           disabled={isSaving}
@@ -368,7 +363,7 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
                           min="1"
                           value={item.quantity === 0 ? '' : item.quantity}
                           onChange={(e) =>
-                            handleItemUpdate(item.id, 'quantity', parseInt(e.target.value) || 1)
+                            handleItemUpdate(item.id, item.productId, 'quantity', parseInt(e.target.value) || 1) // ⭐ Pass item.productId
                           }
                           className="text-right"
                           disabled={isSaving}
@@ -381,7 +376,7 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
                         <Button
                           variant="ghost"
                           size="icon"
-                          onClick={() => handleRemoveItem(item.id)}
+                          onClick={() => handleRemoveItem(item.id!)} // ID is guaranteed for items in table
                           disabled={isSaving}
                         >
                           <X className="h-4 w-4 text-red-500" />
@@ -456,8 +451,8 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
               <Label htmlFor="notes">Notes</Label>
               <Input
                 id="notes"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
+                value={notes} // ⭐ Use notes from store
+                onChange={(e) => setNotes(e.target.value)} // ⭐ Use store's setNotes
                 placeholder="Any specific notes for this invoice..."
                 disabled={isSaving}
               />
@@ -479,7 +474,7 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
             <div className="flex flex-col items-end gap-2 text-right">
               <div className="flex justify-between items-center w-full max-w-xs">
                 <span className="text-lg font-semibold">Subtotal:</span>
-                <span className="text-lg font-semibold">₹{subtotal.toFixed(2)}</span>
+                <span className="text-lg font-semibold">₹{subtotal.toFixed(2)}</span> {/* ⭐ Use subtotal from store */}
               </div>
               <div className="flex justify-between items-center w-full max-w-xs">
                 <Label htmlFor="discountAmount" className="text-lg font-semibold">Discount (₹):</Label>
@@ -488,8 +483,8 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
                   type="number"
                   min="0"
                   step="0.01"
-                  value={discountAmount === 0 ? '' : discountAmount}
-                  onChange={(e) => setDiscountAmount(parseFloat(e.target.value) || 0)}
+                  value={discountAmount === 0 ? '' : discountAmount} // ⭐ Use discountAmount from store
+                  onChange={(e) => setDiscountAmount(parseFloat(e.target.value) || 0)} // ⭐ Use store's setDiscountAmount
                   placeholder="0.00"
                   className="w-[120px] text-right"
                   disabled={isSaving}
@@ -506,8 +501,8 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
                   type="number"
                   min="0"
                   step="0.01"
-                  value={paidAmount === 0 ? '' : paidAmount}
-                  onChange={(e) => setPaidAmount(parseFloat(e.target.value) || 0)}
+                  value={paidAmount === 0 ? '' : paidAmount} // ⭐ Use paidAmount from store
+                  onChange={(e) => setPaidAmount(parseFloat(e.target.value) || 0)} // ⭐ Use store's setPaidAmount
                   placeholder="0.00"
                   className="w-[120px] text-right"
                   disabled={isSaving}
@@ -518,15 +513,15 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
                 <span className="text-2xl font-extrabold">₹{currentBillBalanceDue.toFixed(2)}</span>
               </div>
               <div className="flex gap-2 mt-4">
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   onClick={() => router.push('/invoices')}
                   disabled={isSaving}
                 >
                   Cancel
                 </Button>
-                <Button 
-                  onClick={handleSaveInvoice} 
+                <Button
+                  onClick={handleSaveInvoice}
                   disabled={isSaving}
                 >
                   {isSaving ? (
