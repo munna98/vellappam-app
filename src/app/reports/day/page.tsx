@@ -196,8 +196,9 @@ function SimpleDayReportSkeleton() {
 }
 
 // Main component
-async function SimpleDayReportContent({ searchParams }: { searchParams: { date?: string } }) {
-  const selectedDate = searchParams.date || new Date().toISOString().split('T')[0];
+async function SimpleDayReportContent({ searchParams }: { searchParams: Promise<{ date?: string }> }) {
+  const resolvedSearchParams = await searchParams;
+  const selectedDate = resolvedSearchParams.date || new Date().toISOString().split('T')[0];
   const data = await getSimplifiedDayReportData(selectedDate);
 
   return (
@@ -322,7 +323,7 @@ async function SimpleDayReportContent({ searchParams }: { searchParams: { date?:
 }
 
 // Main page component with Suspense
-export default function SimpleDayReportPage({ searchParams }: { searchParams: { date?: string } }) {
+export default function SimpleDayReportPage({ searchParams }: { searchParams: Promise<{ date?: string }> }) {
   return (
     <Suspense fallback={<SimpleDayReportSkeleton />}>
       <SimpleDayReportContent searchParams={searchParams} />
