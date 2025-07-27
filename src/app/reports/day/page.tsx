@@ -280,8 +280,8 @@ async function SimpleDayReportContent({ searchParams }: { searchParams: { date?:
             <TableRow>
               <TableHead>Customer Name</TableHead>
               <TableHead className="text-right">Opening Balance</TableHead>
-              <TableHead className="text-right">Day's Bill</TableHead>
-              <TableHead className="text-right">Day's Receipt</TableHead>
+              <TableHead className="text-right">Day&apos;s Bill</TableHead>
+              <TableHead className="text-right">Day&apos;s Receipt</TableHead>
               <TableHead className="text-right">Closing Balance</TableHead>
             </TableRow>
           </TableHeader>
