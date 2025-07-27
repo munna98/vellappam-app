@@ -48,7 +48,7 @@ const InvoicePrintTemplate: React.FC<InvoicePrintTemplateProps> = ({
         {companyInfo?.businessName && <h2 className="font-bold text-center" style={{ fontSize: '12pt', marginBottom: '2mm' }}>{companyInfo.businessName}</h2>}
         {companyInfo?.address1 && <p className="text-sm text-center">{companyInfo.address1}</p>}
         {companyInfo?.mobile && <p className="text-sm text-center">Mobile: {companyInfo.mobile}</p>}
-        <p className="text-sm text-center" style={{ marginTop: '3mm' }}>TAX INVOICE</p>
+        <p className="text-sm text-center" style={{ marginTop: '2mm' }}>INVOICE</p>
       </div>
 
       {/* Invoice Details */}

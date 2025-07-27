@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { Plus, X, Loader2 } from 'lucide-react'; // Import Loader2 for the spinner
+import { Plus, X, Loader2 } from 'lucide-react';
 import { Product, Customer, Invoice } from '@prisma/client';
 import { Combobox } from '@/components/ui/combobox';
 import {
@@ -20,7 +20,7 @@ import {
 } from '@/components/ui/table';
 import { Card, CardContent } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
-import { Checkbox } from '@/components/ui/checkbox'; // Import Checkbox
+import { Checkbox } from '@/components/ui/checkbox'; 
 
 import { printReactComponent } from '@/lib/print-utils';
 import InvoicePrintTemplate from '@/components/invoice-print-template';
@@ -239,9 +239,9 @@ export default function CreateInvoicePage() {
             unitPrice: item.unitPrice,
             total: item.total,
           })),
-          totalAmount: totalAmount, // Subtotal
+          totalAmount: totalAmount, 
           discountAmount: discountAmount,
-          paidAmount: paidAmount, // Paid amount is sent to the backend
+          paidAmount: paidAmount, 
           notes,
         }),
       });
@@ -263,8 +263,6 @@ export default function CreateInvoicePage() {
         />, {
           title: `Invoice ${newInvoice.invoiceNumber}`,
         });
-      } else if (!shouldPrint) {
-        toast.info('Invoice saved. Printing skipped as requested.');
       } else if (!companyInfo) {
         toast.warning('Company information not set. Cannot print thermal invoice.');
       }
