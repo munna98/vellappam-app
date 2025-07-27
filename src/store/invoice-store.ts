@@ -37,7 +37,7 @@ interface InvoiceStore {
   resetForm: () => void;
 }
 
-export const useInvoiceStore = create<InvoiceStore>((set, get) => ({
+export const useInvoiceStore = create<InvoiceStore>((set) => ({
   selectedCustomer: null,
   invoiceItems: [],
   totalAmount: 0,
