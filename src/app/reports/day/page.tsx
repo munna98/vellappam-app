@@ -105,13 +105,13 @@ async function getSimplifiedDayReportData(date: string): Promise<SimplifiedDayRe
     if (!customer) continue;
 
     // Calculate opening balance (all invoices before today minus all payments before today)
-    const [previousInvoices, previousPayments] = await Promise.all([
+    const [totalPreviousInvoiced, previousPayments] = await Promise.all([
       prisma.invoice.aggregate({
         where: {
           customerId,
           invoiceDate: { lt: startOfDay },
         },
-        _sum: { balanceDue: true },
+        _sum: { netAmount: true },
       }),
 
       prisma.payment.aggregate({
@@ -123,18 +123,9 @@ async function getSimplifiedDayReportData(date: string): Promise<SimplifiedDayRe
       }),
     ]);
 
-    // For opening balance, we need to calculate total invoiced minus total paid before today
-    const totalPreviousInvoiced = await prisma.invoice.aggregate({
-      where: {
-        customerId,
-        invoiceDate: { lt: startOfDay },
-      },
-      _sum: { netAmount: true },
-    });
-
     const openingBalance = (totalPreviousInvoiced._sum.netAmount || 0) - (previousPayments._sum.amount || 0);
 
-    // Today's activity
+    // Today&apos;s activity
     const daysBillAmount = dailyInvoices
       .filter(inv => inv.customerId === customerId)
       .reduce((sum, inv) => sum + inv.netAmount, 0);
