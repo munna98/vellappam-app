@@ -103,7 +103,7 @@ export default function CreateInvoicePage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [invoiceNumberDisplay, setInvoiceNumberDisplay] = useState<string>('');
   const [selectedProductToAdd, setSelectedProductToAdd] = useState<string | null>(null);
-  const [quantityToAdd, setQuantityToAdd] = useState<number>(1);
+  const [quantityToAdd, setQuantityToAdd] = useState<number>(0);
   const [unitPriceToAdd, setUnitPriceToAdd] = useState<number>(0);
   const [invoiceDate, setInvoiceDate] = useState<string>(new Date().toISOString().split('T')[0]);
 
@@ -195,7 +195,7 @@ export default function CreateInvoicePage() {
     if (product) {
       addItem(product, quantityToAdd, unitPriceToAdd);
       setSelectedProductToAdd(null);
-      setQuantityToAdd(1);
+      setQuantityToAdd(0);
       setUnitPriceToAdd(0);
     }
   };
@@ -392,16 +392,16 @@ export default function CreateInvoicePage() {
               <div className="w-full sm:w-[80px] space-y-2">
                 <Label htmlFor="quantity">Qty</Label>
                 <Input
-                  id="quantity"
-                  type="number"
-                  min="1"
-                  value={quantityToAdd === 0 ? '' : quantityToAdd}
-                  onChange={(e) =>
-                    setQuantityToAdd(parseInt(e.target.value) || 1)
-                  }
-                  placeholder="Qty"
-                  className="text-right"
-                />
+                    id="quantity"
+                    type="number"
+                    min="1"
+                    value={quantityToAdd === 0 ? '' : quantityToAdd}
+                    onChange={(e) =>
+                      setQuantityToAdd(parseInt(e.target.value) || 0)
+                    }
+                    placeholder="Qty"
+                    className="text-right"
+                  />
               </div>
               <Button
                 onClick={handleAddProduct}
@@ -413,77 +413,147 @@ export default function CreateInvoicePage() {
             </div>
 
             {invoiceItems.length > 0 && (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Code</TableHead>
-                    <TableHead>Product</TableHead>
-                    <TableHead className="text-right">Unit Price (₹)</TableHead>
-                    <TableHead className="text-right">Qty</TableHead>
-                    <TableHead className="text-right">Total</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
+              <div className="overflow-x-auto">
+                {/* Mobile Card View for Small Screens */}
+                <div className="block sm:hidden space-y-3">
                   {invoiceItems.map((item) => (
-                    // Using item.id as key is more robust as it's unique even for new unsaved items
-                    <TableRow key={item.id}>
-                      <TableCell>{item.productCode}</TableCell>
-                      <TableCell className="font-medium">
-                        {item.productName}
-                      </TableCell>
-                      <TableCell className="w-[120px]">
-                        <Input
-                          type="number"
-                          min="0.01"
-                          step="0.01"
-                          value={item.unitPrice === 0 ? '' : item.unitPrice}
-                          onChange={(e) =>
-                            updateItemDetails(
-                              item.id, // Pass item.id (temporary or actual)
-                              item.productId,
-                              undefined,
-                              parseFloat(e.target.value) || 0
-                            )
-                          }
-                          className="text-right"
-                          disabled={isSaving} // Disable input while saving
-                        />
-                      </TableCell>
-                      <TableCell className="w-[100px]">
-                        <Input
-                          type="number"
-                          min="1"
-                          value={item.quantity === 0 ? '' : item.quantity}
-                          onChange={(e) =>
-                            updateItemDetails(
-                              item.id, // Pass item.id (temporary or actual)
-                              item.productId,
-                              parseInt(e.target.value) || 0,
-                              undefined
-                            )
-                          }
-                          className="text-right"
-                          disabled={isSaving} // Disable input while saving
-                        />
-                      </TableCell>
-                      <TableCell className="text-right">
-                        ₹{item.total.toFixed(2)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => removeItem(item.id!)} // item.id is guaranteed to exist here
-                          disabled={isSaving} // Disable remove button while saving
-                        >
-                          <X className="h-4 w-4 text-red-500" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
+                    <Card key={item.id} className="p-3">
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-start">
+                          <div className="flex-1">
+                            <div className="font-medium text-sm">{item.productName} <span className="text-xs text-gray-500">({item.productCode})</span></div>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removeItem(item.id!)}
+                            disabled={isSaving}
+                            className="ml-2"
+                          >
+                            <X className="h-4 w-4 text-red-500" />
+                          </Button>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="space-y-1">
+                            <Label className="text-xs">Unit Price (₹)</Label>
+                            <Input
+                              type="number"
+                              min="0.01"
+                              step="0.01"
+                              value={item.unitPrice === 0 ? '' : item.unitPrice}
+                              onChange={(e) =>
+                                updateItemDetails(
+                                  item.id,
+                                  item.productId,
+                                  undefined,
+                                  parseFloat(e.target.value) || 0
+                                )
+                              }
+                              className="text-right text-sm"
+                              disabled={isSaving}
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">Qty</Label>
+                            <Input
+                              type="number"
+                              min="1"
+                              value={item.quantity === 0 ? '' : item.quantity}
+                              onChange={(e) =>
+                                updateItemDetails(
+                                  item.id,
+                                  item.productId,
+                                  parseInt(e.target.value) || 0,
+                                  undefined
+                                )
+                              }
+                              className="text-right text-sm"
+                              disabled={isSaving}
+                            />
+                          </div>
+                        </div>
+                        
+                        <div className="text-right">
+                          <span className="text-sm font-medium">Total: ₹{item.total.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    </Card>
                   ))}
-                </TableBody>
-              </Table>
+                </div>
+
+                {/* Desktop Table View */}
+                <Table className="hidden sm:table">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Code</TableHead>
+                      <TableHead>Product</TableHead>
+                      <TableHead className="text-right">Unit Price (₹)</TableHead>
+                      <TableHead className="text-right">Qty</TableHead>
+                      <TableHead className="text-right">Total</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {invoiceItems.map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell>{item.productCode}</TableCell>
+                        <TableCell className="font-medium">
+                          {item.productName}
+                        </TableCell>
+                        <TableCell className="w-[120px]">
+                          <Input
+                            type="number"
+                            min="0.01"
+                            step="0.01"
+                            value={item.unitPrice === 0 ? '' : item.unitPrice}
+                            onChange={(e) =>
+                              updateItemDetails(
+                                item.id,
+                                item.productId,
+                                undefined,
+                                parseFloat(e.target.value) || 0
+                              )
+                            }
+                            className="text-right"
+                            disabled={isSaving}
+                          />
+                        </TableCell>
+                        <TableCell className="w-[100px]">
+                          <Input
+                            type="number"
+                            min="1"
+                            value={item.quantity === 0 ? '' : item.quantity}
+                            onChange={(e) =>
+                              updateItemDetails(
+                                item.id,
+                                item.productId,
+                                parseInt(e.target.value) || 0,
+                                undefined
+                              )
+                            }
+                            className="text-right"
+                            disabled={isSaving}
+                          />
+                        </TableCell>
+                        <TableCell className="text-right">
+                          ₹{item.total.toFixed(2)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => removeItem(item.id!)}
+                            disabled={isSaving}
+                          >
+                            <X className="h-4 w-4 text-red-500" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             )}
           </div>
 

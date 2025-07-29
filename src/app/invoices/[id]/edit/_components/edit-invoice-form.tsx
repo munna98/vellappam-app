@@ -16,7 +16,7 @@ import {
   TableCell,
   TableHead,
   TableHeader,
-  TableRow,
+  TableRow, 
 } from '@/components/ui/table';
 import { Card, CardContent } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
@@ -60,7 +60,7 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
 
   // Local state for product addition UI
   const [selectedProductToAdd, setSelectedProductToAdd] = useState<string | null>(null);
-  const [quantityToAdd, setQuantityToAdd] = useState<number>(1);
+  const [quantityToAdd, setQuantityToAdd] = useState<number>(0);
   const [unitPriceToAdd, setUnitPriceToAdd] = useState<number>(0);
 
   // Initialize store with initialInvoice data on mount
@@ -174,7 +174,7 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
 
       addItem(product, quantityToAdd, unitPriceToAdd); // Use store's addItem
       setSelectedProductToAdd(null);
-      setQuantityToAdd(1);
+      setQuantityToAdd(0);
       setUnitPriceToAdd(0);
     }
   };
@@ -328,70 +328,132 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
           <div className="space-y-4">
             <h3 className="text-lg font-semibold">Invoice Items</h3>
             {invoiceItems.length > 0 ? ( // ⭐ Use invoiceItems from store
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Code</TableHead>
-                    <TableHead>Product</TableHead>
-                    <TableHead className="text-right">Unit Price (₹)</TableHead>
-                    <TableHead className="text-right">Qty</TableHead>
-                    <TableHead className="text-right">Total</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {invoiceItems.map((item) => ( // ⭐ Use invoiceItems from store
-                    <TableRow key={item.id}>
-                      <TableCell>{item.productCode}</TableCell>
-                      <TableCell className="font-medium">{item.productName}</TableCell>
-                      <TableCell className="w-[120px]">
-                        <Input
-                          type="number"
-                          min="0.01"
-                          step="0.01"
-                          value={item.unitPrice === 0 ? '' : item.unitPrice}
-                          onChange={(e) =>
-                            handleItemUpdate(item.id, item.productId, 'unitPrice', parseFloat(e.target.value) || 0) // ⭐ Pass item.productId
-                          }
-                          className="text-right"
-                          disabled={isSaving}
-                        />
-                      </TableCell>
-                      <TableCell className="w-[100px]">
-                        <Input
-                          type="number"
-                          min="1"
-                          value={item.quantity === 0 ? '' : item.quantity}
-                          onChange={(e) =>
-                            handleItemUpdate(item.id, item.productId, 'quantity', parseInt(e.target.value) || 1) // ⭐ Pass item.productId
-                          }
-                          className="text-right"
-                          disabled={isSaving}
-                        />
-                      </TableCell>
-                      <TableCell className="text-right">
-                        ₹{item.total.toFixed(2)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleRemoveItem(item.id!)} // ID is guaranteed for items in table
-                          disabled={isSaving}
-                        >
-                          <X className="h-4 w-4 text-red-500" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
+              <div className="overflow-x-auto">
+                {/* Mobile Card View for Small Screens */}
+                <div className="block sm:hidden space-y-3">
+                  {invoiceItems.map((item) => (
+                    <Card key={item.id} className="p-3">
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-start">
+                          <div className="flex-1">
+                            <div className="font-medium text-sm">{item.productName} <span className="text-xs text-gray-500">({item.productCode})</span></div>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleRemoveItem(item.id!)}
+                            disabled={isSaving}
+                            className="ml-2"
+                          >
+                            <X className="h-4 w-4 text-red-500" />
+                          </Button>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="space-y-1">
+                            <Label className="text-xs">Unit Price (₹)</Label>
+                            <Input
+                              type="number"
+                              min="0.01"
+                              step="0.01"
+                              value={item.unitPrice === 0 ? '' : item.unitPrice}
+                              onChange={(e) =>
+                                handleItemUpdate(item.id, item.productId, 'unitPrice', parseFloat(e.target.value) || 0)
+                              }
+                              className="text-right text-sm"
+                              disabled={isSaving}
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">Qty</Label>
+                            <Input
+                              type="number"
+                              min="1"
+                              value={item.quantity === 0 ? '' : item.quantity}
+                              onChange={(e) =>
+                                handleItemUpdate(item.id, item.productId, 'quantity', parseInt(e.target.value) || 1)
+                              }
+                              className="text-right text-sm"
+                              disabled={isSaving}
+                            />
+                          </div>
+                        </div>
+                        
+                        <div className="text-right">
+                          <span className="text-sm font-medium">Total: ₹{item.total.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    </Card>
                   ))}
-                </TableBody>
-              </Table>
+                </div>
+
+                {/* Desktop Table View */}
+                <Table className="hidden sm:table">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Code</TableHead>
+                      <TableHead>Product</TableHead>
+                      <TableHead className="text-right">Unit Price (₹)</TableHead>
+                      <TableHead className="text-right">Qty</TableHead>
+                      <TableHead className="text-right">Total</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {invoiceItems.map((item) => ( // ⭐ Use invoiceItems from store
+                      <TableRow key={item.id}>
+                        <TableCell>{item.productCode}</TableCell>
+                        <TableCell className="font-medium">{item.productName}</TableCell>
+                        <TableCell className="w-[120px]">
+                          <Input
+                            type="number"
+                            min="0.01"
+                            step="0.01"
+                            value={item.unitPrice === 0 ? '' : item.unitPrice}
+                            onChange={(e) =>
+                              handleItemUpdate(item.id, item.productId, 'unitPrice', parseFloat(e.target.value) || 0) // ⭐ Pass item.productId
+                            }
+                            className="text-right"
+                            disabled={isSaving}
+                          />
+                        </TableCell>
+                        <TableCell className="w-[100px]">
+                          <Input
+                            type="number"
+                            min="1"
+                            value={item.quantity === 0 ? '' : item.quantity}
+                            onChange={(e) =>
+                              handleItemUpdate(item.id, item.productId, 'quantity', parseInt(e.target.value) || 1) // ⭐ Pass item.productId
+                            }
+                            className="text-right"
+                            disabled={isSaving}
+                          />
+                        </TableCell>
+                        <TableCell className="text-right">
+                          ₹{item.total.toFixed(2)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleRemoveItem(item.id!)} // ID is guaranteed for items in table
+                            disabled={isSaving}
+                          >
+                            <X className="h-4 w-4 text-red-500" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             ) : (
               <p className="text-center text-muted-foreground">No items added yet. Use the fields below to add products.</p>
             )}
 
-            <div className="flex flex-wrap items-end gap-4 mt-4">
-              <div className="flex-1 min-w-[200px] sm:min-w-[250px] md:min-w-[300px] space-y-2">
+            <div className="space-y-3 sm:space-y-0 mt-4">
+              {/* Product Selection - Full Width on Mobile */}
+              <div className="space-y-2">
                 <Label htmlFor="productToAdd">Add New Product</Label>
                 <Combobox
                   items={products}
@@ -407,36 +469,42 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
                   }
                 />
               </div>
-              <div className="w-full sm:w-[120px] space-y-2">
-                <Label htmlFor="unitPriceToAdd">Unit Price</Label>
-                <Input
-                  id="unitPriceToAdd"
-                  type="number"
-                  min="0.01"
-                  step="0.01"
-                  value={unitPriceToAdd === 0 ? '' : unitPriceToAdd}
-                  onChange={(e) => setUnitPriceToAdd(parseFloat(e.target.value) || 0)}
-                  placeholder="Price"
-                  className="text-right"
-                  disabled={isSaving}
-                />
+              
+              {/* Price and Quantity Row - Mobile Responsive */}
+              <div className="flex gap-2 sm:gap-4">
+                <div className="flex-[2] space-y-2">
+                  <Label htmlFor="unitPriceToAdd">Unit Price</Label>
+                  <Input
+                    id="unitPriceToAdd"
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    value={unitPriceToAdd === 0 ? '' : unitPriceToAdd}
+                    onChange={(e) => setUnitPriceToAdd(parseFloat(e.target.value) || 0)}
+                    placeholder="Price"
+                    className="text-right"
+                    disabled={isSaving}
+                  />
+                </div>
+                <div className="flex-1 space-y-2">
+                  <Label htmlFor="quantityToAdd">Qty</Label>
+                  <Input
+                    id="quantityToAdd"
+                    type="number"
+                    min="1"
+                    value={quantityToAdd === 0 ? '' : quantityToAdd}
+                    onChange={(e) => setQuantityToAdd(parseInt(e.target.value) || 0)}
+                    placeholder="Qty"
+                    className="text-right"
+                    disabled={isSaving}
+                  />
+                </div>
               </div>
-              <div className="w-full sm:w-[80px] space-y-2">
-                <Label htmlFor="quantityToAdd">Qty</Label>
-                <Input
-                  id="quantityToAdd"
-                  type="number"
-                  min="1"
-                  value={quantityToAdd === 0 ? '' : quantityToAdd}
-                  onChange={(e) => setQuantityToAdd(parseInt(e.target.value) || 1)}
-                  placeholder="Qty"
-                  className="text-right"
-                  disabled={isSaving}
-                />
-              </div>
+              
+              {/* Add Button - Full Width on Mobile */}
               <Button
                 onClick={handleAddProduct}
-                className="w-full sm:w-auto h-10 flex-shrink-0"
+                className="w-full sm:w-auto h-10"
                 disabled={isSaving}
               >
                 <Plus className="h-4 w-4 mr-2" /> Add Item
@@ -444,7 +512,7 @@ export function EditInvoiceForm({ initialInvoice }: EditInvoiceFormProps) {
             </div>
           </div>
 
-          <Separator />
+          <Separator />w
 
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">

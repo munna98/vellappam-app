@@ -2,7 +2,7 @@
 import {
   Card,
   CardContent,
-  CardHeader,
+  CardHeader, 
   CardTitle,
 } from '@/components/ui/card';
 import {
@@ -15,6 +15,10 @@ import {
 } from 'lucide-react';
 import prisma from '@/lib/prisma';
 import { InvoiceStatus } from '@prisma/client';
+
+// Add these cache control exports
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 async function getDashboardData() {
   const now = new Date();
@@ -46,7 +50,6 @@ async function getDashboardData() {
     prisma.invoice.groupBy({
       by: ['status'],
       _count: { status: true },
-      // _sum.netAmount is appropriate for PAID, _sum.balanceDue for PENDING
       _sum: { netAmount: true, balanceDue: true },
     }),
 
@@ -71,12 +74,12 @@ async function getDashboardData() {
       _count: { amount: true },
     }),
 
-    // Overdue invoices (only PENDING invoices with balance due)
+    // Overdue invoices
     prisma.invoice.findMany({
       where: {
-        status: InvoiceStatus.PENDING, // Only consider PENDING as overdue
-        invoiceDate: { lt: thirtyDaysAgo }, // Invoice created more than 30 days ago
-        balanceDue: { gt: 0 } // Must still have an outstanding balance
+        status: InvoiceStatus.PENDING,
+        invoiceDate: { lt: thirtyDaysAgo },
+        balanceDue: { gt: 0 }
       },
       select: {
         id: true,
@@ -94,7 +97,7 @@ async function getDashboardData() {
     // Top customers by outstanding balance
     prisma.customer.findMany({
       where: {
-        balance: { gt: 0 } // Only customers who owe money
+        balance: { gt: 0 }
       },
       select: {
         name: true,
@@ -110,8 +113,8 @@ async function getDashboardData() {
   const invoiceBreakdown = {
     pending: 0,
     paid: 0,
-    pendingAmount: 0, // Total balance due for pending invoices
-    paidAmount: 0,    // Total netAmount for paid invoices
+    pendingAmount: 0,
+    paidAmount: 0,
   };
 
   invoiceStats.forEach(stat => {
@@ -142,31 +145,20 @@ async function getDashboardData() {
     : 0;
 
   return {
-    // Basic metrics
     totalCustomers,
     totalProducts,
     totalInvoices,
     outstandingBalance: customerBalances._sum.balance || 0,
-
-    // Invoice breakdown
     invoiceBreakdown,
-
-    // Recent performance
     recentInvoiceCount: recentInvoices.length,
     recentInvoiceAmount,
     recentPaymentCount: recentPayments._count.amount || 0,
     recentPaymentAmount,
     collectionRate,
-
-    // Overdue metrics
     overdueCount: overdueInvoices.length,
     totalOverdueAmount,
     avgDaysOverdue: Math.round(avgDaysOverdue),
-
-    // Top customers
     topCustomers,
-
-    // Health indicators
     customersWithBalance: customerBalances._count.balance || 0,
     avgCustomerBalance: customerBalances._count.balance > 0
       ? (customerBalances._sum.balance || 0) / customerBalances._count.balance
@@ -254,7 +246,6 @@ export default async function DashboardPage() {
                 <span className="text-sm text-yellow-600">Pending</span>
                 <span className="font-semibold">{data.invoiceBreakdown.pending}</span>
               </div>
-              {/* Removed Partial and Cancelled displays */}
             </div>
           </CardContent>
         </Card>
