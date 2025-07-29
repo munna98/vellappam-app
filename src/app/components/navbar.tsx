@@ -32,6 +32,7 @@ import {
   FileText,
   ChevronDown,
   Calendar,
+  NotebookText,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -50,6 +51,7 @@ export function Navbar() {
 
   const reportItems = [
     { name: "Day Report", href: "/reports/day", icon: Calendar },
+    { name: "Ledger book", href: "/reports/customer-ledger", icon: NotebookText },
     // Add more report types here as needed
     // { name: "Weekly Report", href: "/reports/weekly", icon: Calendar },
     // { name: "Monthly Report", href: "/reports/monthly", icon: Calendar },
