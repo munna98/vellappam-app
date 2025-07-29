@@ -138,7 +138,7 @@ export async function POST(request: Request) {
 
         const newPaidAmount = invoice.paidAmount + amountToAllocate;
         const newBalanceDue = invoice.balanceDue - amountToAllocate;
-        let newStatus: InvoiceStatus = newBalanceDue <= 0.001 ? InvoiceStatus.PAID : InvoiceStatus.PENDING;
+        const newStatus: InvoiceStatus = newBalanceDue <= 0.001 ? InvoiceStatus.PAID : InvoiceStatus.PENDING;
 
         invoicesToUpdate.push({
           id: invoice.id,
