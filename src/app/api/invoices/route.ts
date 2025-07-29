@@ -1,50 +1,20 @@
 // src/app/api/invoices/route.ts
+// Clean version for fresh start
 
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
-import { InvoiceStatus, Prisma } from "@prisma/client"; // Import Prisma for types
+import { InvoiceStatus, Prisma } from "@prisma/client";
 
-// Function to generate the next invoice number safely within a transaction
-async function generateNextInvoiceNumber(
-  tx: Prisma.TransactionClient
-): Promise<string> {
-  // Optimized: Query only the latest invoice for the highest number
-  const lastInvoice = await tx.invoice.findFirst({
-    select: { invoiceNumber: true },
-    orderBy: { invoiceNumber: "desc" }, // Sort by invoiceNumber descending to get the latest INVXYZ
-  });
-
-  let maxNumericInvoice = 0;
-  if (lastInvoice && lastInvoice.invoiceNumber) {
-    const match = lastInvoice.invoiceNumber.match(/^INV(\d+)$/);
-    if (match) {
-      maxNumericInvoice = parseInt(match[1], 10);
-    }
-  }
-  return `INV${maxNumericInvoice + 1}`;
+// SIMPLE: Since we're starting fresh, we can rely on auto-increment
+// But we'll still generate the string format for display
+function generateInvoiceNumber(numericId: number): string {
+  return `INV${numericId}`;
 }
 
-// Function to generate the next payment number safely within a transaction
-async function generateNextPaymentNumber(
-  tx: Prisma.TransactionClient
-): Promise<string> {
-  // Optimized: Query only the latest payment for the highest number
-  const lastPayment = await tx.payment.findFirst({
-    select: { paymentNumber: true },
-    orderBy: { paymentNumber: "desc" }, // Sort by paymentNumber descending to get the latest PAYXYZ
-  });
-
-  if (!lastPayment || !lastPayment.paymentNumber) {
-    return "PAY1";
-  }
-
-  const match = lastPayment.paymentNumber.match(/^PAY(\d+)$/);
-  if (match) {
-    const lastNumber = parseInt(match[1], 10);
-    return `PAY${lastNumber + 1}`;
-  }
-  return "PAY1"; // Fallback if format is unexpected (should ideally not happen)
+function generatePaymentNumber(numericId: number): string {
+  return `PAY${numericId}`;
 }
+
 
 export async function POST(request: Request) {
   try {
@@ -88,25 +58,15 @@ export async function POST(request: Request) {
 
         let status: InvoiceStatus;
         if (currentInvoiceBalanceDue <= 0.001) {
-          // Using a small epsilon for floating point comparison
           status = InvoiceStatus.PAID;
         } else {
           status = InvoiceStatus.PENDING;
         }
 
-        // Generate invoice number within the transaction
-        const nextInvoiceNumber = await generateNextInvoiceNumber(tx);
-
-        let nextPaymentNumber: string | null = null;
-        if ((paidAmount || 0) > 0) {
-          // Generate payment number within the transaction for atomicity
-          nextPaymentNumber = await generateNextPaymentNumber(tx);
-        }
-
-        // 1. Create the Invoice
+        // 1. Create the Invoice (auto-increment will handle invoiceNumericId)
         const createdInvoice = await tx.invoice.create({
           data: {
-            invoiceNumber: nextInvoiceNumber,
+            invoiceNumber: "", // We'll update this after we get the numeric ID
             customerId,
             invoiceDate: new Date(invoiceDate),
             totalAmount,
@@ -119,7 +79,14 @@ export async function POST(request: Request) {
           },
         });
 
-        // 2. Create Invoice Items
+        // 2. Update the invoice number based on the auto-generated numeric ID
+        const invoiceNumber = generateInvoiceNumber(createdInvoice.invoiceNumericId);
+        await tx.invoice.update({
+          where: { id: createdInvoice.id },
+          data: { invoiceNumber },
+        });
+
+        // 3. Create Invoice Items
         const invoiceItemsToCreate = items.map(
           (item: {
             productId: string;
@@ -139,7 +106,7 @@ export async function POST(request: Request) {
           data: invoiceItemsToCreate,
         });
 
-        // 3. Update Customer Balance
+        // 4. Update Customer Balance
         await tx.customer.update({
           where: { id: customerId },
           data: {
@@ -147,17 +114,23 @@ export async function POST(request: Request) {
           },
         });
 
-        // 4. Handle Payment
-        if ((paidAmount || 0) > 0 && nextPaymentNumber) {
-          // Ensure nextPaymentNumber is available
+        // 5. Handle Payment
+        if ((paidAmount || 0) > 0) {
           const newPayment = await tx.payment.create({
             data: {
-              paymentNumber: nextPaymentNumber, // Use the generated number
+              paymentNumber: "", // We'll update this after we get the numeric ID
               customerId: customerId,
               amount: paidAmount,
               paymentDate: new Date(),
-              notes: `Payment for Invoice ${createdInvoice.invoiceNumber} at creation.`,
+              notes: `Payment for Invoice ${invoiceNumber} at creation.`,
             },
+          });
+
+          // Update payment number based on auto-generated numeric ID
+          const paymentNumber = generatePaymentNumber(newPayment.paymentNumericId);
+          await tx.payment.update({
+            where: { id: newPayment.id },
+            data: { paymentNumber },
           });
 
           await tx.paymentAllocation.create({
@@ -169,11 +142,11 @@ export async function POST(request: Request) {
           });
         }
 
-        return createdInvoice;
+        return { ...createdInvoice, invoiceNumber };
       },
       {
-        maxWait: 10000, // 10 seconds to start (default is 2 seconds)
-        timeout: 10000, // 10 seconds for the transaction to complete (default is 5 seconds)
+        maxWait: 10000,
+        timeout: 10000,
       }
     );
 
@@ -207,7 +180,7 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const search = searchParams.get("search") || "";
-    const status = searchParams.get("status") as InvoiceStatus | undefined; // Cast to InvoiceStatus
+    const status = searchParams.get("status") as InvoiceStatus | undefined;
     const customerId = searchParams.get("customerId");
     const page = parseInt(searchParams.get("page") || "1", 10);
     const limit = parseInt(searchParams.get("limit") || "10", 10);
@@ -237,19 +210,14 @@ export async function GET(request: Request) {
     
     const getLatestNumber = searchParams.get("getLatestNumber");
     if (getLatestNumber === "true") {
+      // Get the latest numeric ID (much more efficient)
       const lastInvoice = await prisma.invoice.findFirst({
-        select: { invoiceNumber: true },
-        orderBy: { invoiceNumber: "desc" },
+        select: { invoiceNumericId: true },
+        orderBy: { invoiceNumericId: "desc" },
       });
 
-      let maxNumericInvoice = 0;
-      if (lastInvoice && lastInvoice.invoiceNumber) {
-        const match = lastInvoice.invoiceNumber.match(/^INV(\d+)$/);
-        if (match) {
-          maxNumericInvoice = parseInt(match[1], 10);
-        }
-      }
-      return NextResponse.json({ latestNumericInvoice: maxNumericInvoice });
+      const latestNumericInvoice = lastInvoice ? lastInvoice.invoiceNumericId : 0;
+      return NextResponse.json({ latestNumericInvoice });
     }
 
     const [invoices, totalCount] = await Promise.all([
@@ -261,7 +229,7 @@ export async function GET(request: Request) {
           },
         },
         orderBy: {
-          createdAt: "desc",
+          invoiceNumericId: "desc", // Use numeric ID for proper ordering
         },
         take: limit,
         skip,

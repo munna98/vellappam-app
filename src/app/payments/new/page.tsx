@@ -1,4 +1,3 @@
-// src/app/payments/new/page.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -19,45 +18,43 @@ export default function CreatePaymentPage() {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [amount, setAmount] = useState<number>(0);
   const [notes, setNotes] = useState('');
-  const [nextPaymentNum, setNextPaymentNum] = useState('Loading...');
+  const [nextPaymentNum, setNextPaymentNum] = useState('PAY1');
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const fetchData = async () => {
+      setIsLoading(true);
       try {
         // Fetch customers
         const customersRes = await fetch('/api/customers');
-        if (!customersRes.ok) {
-          throw new Error('Failed to fetch customers.');
-        }
-        // FIX: Assume /api/customers returns { data: Customer[] }
-        const customersResponse = await customersRes.json();
-        setCustomers(Array.isArray(customersResponse.data) ? customersResponse.data : []);
+        if (!customersRes.ok) throw new Error('Failed to fetch customers');
+        const customersData = await customersRes.json();
+        setCustomers(customersData.data || []);
 
-        // Fetch next payment number from the new API endpoint
+        // Fetch next payment number
         const paymentNumRes = await fetch('/api/payments/next-number');
-        if (!paymentNumRes.ok) {
-          throw new Error('Failed to fetch next payment number.');
-        }
+        if (!paymentNumRes.ok) throw new Error('Failed to fetch payment number');
         const { nextNumber } = await paymentNumRes.json();
         setNextPaymentNum(nextNumber);
-
       } catch (error) {
-        console.error('Error fetching initial data for payments:', error);
-        toast.error('Failed to load customers or payment number.');
-        setNextPaymentNum('Error loading number');
-        setCustomers([]);
+        console.error('Error fetching data:', error);
+        toast.error('Failed to load initial data');
+        setNextPaymentNum('PAY1');
+      } finally {
+        setIsLoading(false);
       }
     };
+
     fetchData();
-  }, []); // Empty dependency array, runs once on mount
+  }, []);
 
   const handleSavePayment = async () => {
     if (!selectedCustomer) {
-      toast.error('Please select a customer.');
+      toast.error('Please select a customer');
       return;
     }
     if (amount <= 0) {
-      toast.error('Payment amount must be greater than zero.');
+      toast.error('Payment amount must be greater than zero');
       return;
     }
 
@@ -69,23 +66,20 @@ export default function CreatePaymentPage() {
           customerId: selectedCustomer.id,
           amount,
           notes,
-          // paymentDate is handled by backend or can be sent if needed
         }),
       });
 
       if (!response.ok) {
         const errorData = await response.json();
-        // FIX: Type 'error' properly
         throw new Error(errorData.error || 'Failed to save payment');
       }
 
       toast.success('Payment recorded successfully!');
       router.push('/payments');
       router.refresh();
-    } catch (error: unknown) { // ⭐ FIX: Use unknown and then narrow the type
-      console.error(error);
-      const errorMessage = error instanceof Error ? error.message : 'Error saving payment.';
-      toast.error(errorMessage);
+    } catch (error) {
+      console.error('Error saving payment:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to save payment');
     }
   };
 
@@ -93,23 +87,11 @@ export default function CreatePaymentPage() {
     setSelectedCustomer(null);
     setAmount(0);
     setNotes('');
-    // Optionally refetch next payment number if user resets the form
-    const fetchNextNumOnReset = async () => {
-      try {
-        setNextPaymentNum('Loading...');
-        const paymentNumRes = await fetch('/api/payments/next-number');
-        if (paymentNumRes.ok) {
-          const { nextNumber } = await paymentNumRes.json();
-          setNextPaymentNum(nextNumber);
-        } else {
-          setNextPaymentNum('Error loading number');
-        }
-      } catch (error) {
-        console.error('Error refetching next payment number:', error);
-        setNextPaymentNum('Error loading number');
-      }
-    };
-    fetchNextNumOnReset();
+    // Refresh the next payment number
+    fetch('/api/payments/next-number')
+      .then(res => res.json())
+      .then(data => setNextPaymentNum(data.nextNumber))
+      .catch(() => setNextPaymentNum('PAY1'));
   };
 
   return (
@@ -146,17 +128,16 @@ export default function CreatePaymentPage() {
                 <Combobox
                   items={customers}
                   value={selectedCustomer?.id || null}
-                  onSelect={(id) =>
-                    setSelectedCustomer(customers.find((c) => c.id === id) || null)
-                  }
+                  onSelect={(id) => setSelectedCustomer(customers.find(c => c.id === id) || null)}
                   placeholder="Select a customer..."
-                  emptyMessage="No customer found."
+                  emptyMessage="No customer found"
                   searchPlaceholder="Search customers..."
                   displayKey="name"
                   valueKey="id"
-                  formatItemLabel={(customer: Customer) =>
+                  formatItemLabel={(customer: Customer) => 
                     `${customer.name} (Bal: ₹${customer.balance.toFixed(2)})`
                   }
+                  // disabled={isLoading}
                 />
               </div>
             </div>
@@ -167,7 +148,9 @@ export default function CreatePaymentPage() {
               <p className="font-semibold">{selectedCustomer.name}</p>
               <p className="text-sm text-muted-foreground">{selectedCustomer.address}</p>
               <p className="text-sm text-muted-foreground">Phone: {selectedCustomer.phone}</p>
-              <p className="text-sm font-bold mt-2">Current Balance: ₹{selectedCustomer.balance.toFixed(2)}</p>
+              <p className="text-sm font-bold mt-2">
+                Current Balance: ₹{selectedCustomer.balance.toFixed(2)}
+              </p>
             </div>
           )}
 
@@ -185,6 +168,7 @@ export default function CreatePaymentPage() {
                 value={amount === 0 ? '' : amount}
                 onChange={(e) => setAmount(parseFloat(e.target.value) || 0)}
                 placeholder="0.00"
+                disabled={isLoading}
               />
             </div>
             <div className="space-y-2 md:col-span-2">
@@ -194,15 +178,18 @@ export default function CreatePaymentPage() {
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Any notes for this payment..."
+                disabled={isLoading}
               />
             </div>
           </div>
 
           <div className="flex justify-end gap-2 mt-6">
-            <Button variant="outline" onClick={handleResetForm}>
+            <Button variant="outline" onClick={handleResetForm} disabled={isLoading}>
               Reset Form
             </Button>
-            <Button onClick={handleSavePayment}>Record Payment</Button>
+            <Button onClick={handleSavePayment} disabled={isLoading}>
+              {isLoading ? 'Processing...' : 'Record Payment'}
+            </Button>
           </div>
         </CardContent>
       </Card>

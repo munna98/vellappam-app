@@ -71,6 +71,7 @@ model Product {
 model Invoice {
   id            String        @id @default(uuid())
   invoiceNumber String        @unique // e.g., INV1
+  invoiceNumericId  Int       @unique @default(autoincrement())
   customerId    String
   invoiceDate   DateTime      @default(now())
   totalAmount   Float         // Subtotal of all items (before discount)
@@ -87,6 +88,7 @@ model Invoice {
   items    InvoiceItem[]
   paymentAllocations PaymentAllocation[]
   @@index([invoiceNumber(sort: Desc)])
+  @@index([invoiceNumericId(sort: Desc)])
 }
 // --- Invoice Item Model ---
 // Represents a line item on an invoice.
@@ -102,12 +104,13 @@ model InvoiceItem {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @default(now()) @updatedAt // FIX APPLIED HERE: Added @default(now())
 }
-
+ 
 // --- Payment Model ---
 // Represents a payment received from a customer.
 model Payment {
   id              String  @id @default(cuid())
   paymentNumber   String  @unique 
+  paymentNumericId   Int     @unique @default(autoincrement())
   customerId      String
   customer        Customer @relation(fields: [customerId], references: [id])
   amount          Float                         // Total amount of this payment
@@ -117,6 +120,7 @@ model Payment {
   // UPDATED: Now links to the PaymentAllocation junction table
   paymentAllocations PaymentAllocation[]
   @@index([paymentNumber(sort: Desc)])
+  @@index([paymentNumericId(sort: Desc)])
 
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt

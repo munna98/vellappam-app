@@ -26,16 +26,20 @@ import { printReactComponent } from '@/lib/print-utils';
 import InvoicePrintTemplate from '@/components/invoice-print-template';
 
 // Helper function to generate next invoice number for DISPLAY ONLY
-const generateNextInvoiceNumberForDisplay = (lastInvoiceNumber: string | null): string => {
-  if (!lastInvoiceNumber) {
-    return 'INV1';
-  }
-  const match = lastInvoiceNumber.match(/^INV(\d+)$/);
-  if (match) {
-    const lastNumber = parseInt(match[1], 10);
-    return `INV${lastNumber + 1}`;
-  }
-  return 'INV1';
+// const generateNextInvoiceNumberForDisplay = (lastInvoiceNumber: string | null): string => {
+//   if (!lastInvoiceNumber) {
+//     return 'INV1';
+//   }
+//   const match = lastInvoiceNumber.match(/^INV(\d+)$/);
+//   if (match) {
+//     const lastNumber = parseInt(match[1], 10);
+//     return `INV${lastNumber + 1}`;
+//   }
+//   return 'INV1';
+// };
+
+const generateNextInvoiceNumberForDisplay = (lastNumericId: number): string => {
+  return `INV${lastNumericId + 1}`;
 };
 
 // Define types for data fetched from API for print
@@ -114,45 +118,42 @@ export default function CreateInvoicePage() {
   const [isSaving, setIsSaving] = useState<boolean>(false);
 
   // --- Fetch Customers, Products, Last Invoice, and Company Info on component mount ---
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [customersRes, productsRes, lastInvoiceRes, companyInfoRes] = await Promise.all([
-          fetch('/api/customers'),
-          fetch('/api/products'),
-          fetch('/api/invoices?orderBy=createdAt&direction=desc&limit=1'),
-          fetch('/api/company-info'),
-        ]);
+useEffect(() => {
+  const fetchData = async () => {
+    try {
+      const [customersRes, productsRes, lastInvoiceRes, companyInfoRes] = await Promise.all([
+        fetch('/api/customers'),
+        fetch('/api/products'),
+        fetch('/api/invoices?getLatestNumber=true'), // This now returns latestNumericInvoice
+        fetch('/api/company-info'),
+      ]);
 
-        if (!customersRes.ok || !productsRes.ok || !lastInvoiceRes.ok || !companyInfoRes.ok) {
-          throw new Error('Failed to fetch initial data');
-        }
-
-        const customersResponse = await customersRes.json();
-        const productsResponse = await productsRes.json();
-        const lastInvoices = await lastInvoiceRes.json();
-        const companyInfoData: CompanyInfo = await companyInfoRes.json();
-
-        // Ensure .data is an array, default to empty array if not
-        setCustomers(Array.isArray(customersResponse.data) ? customersResponse.data : []);
-        setProducts(Array.isArray(productsResponse.data) ? productsResponse.data : []);
-
-        setCompanyInfo(companyInfoData);
-        setShouldPrint(companyInfoData.defaultPrintOnSave);
-
-        const lastInvNumber = lastInvoices.data.length > 0 ? lastInvoices.data[0].invoiceNumber : null;
-        setInvoiceNumberDisplay(generateNextInvoiceNumberForDisplay(lastInvNumber));
-      } catch (error) {
-        console.error('Error fetching data:', error);
-        toast.error('Failed to load customers, products, or company info.');
-        setInvoiceNumberDisplay('INV1');
-        // Also reset to empty arrays on error to prevent further issues
-        setCustomers([]);
-        setProducts([]);
+      if (!customersRes.ok || !productsRes.ok || !lastInvoiceRes.ok || !companyInfoRes.ok) {
+        throw new Error('Failed to fetch initial data');
       }
-    };
 
-    fetchData();
+      const customersResponse = await customersRes.json();
+      const productsResponse = await productsRes.json();
+      const { latestNumericInvoice } = await lastInvoiceRes.json(); // Changed this line
+      const companyInfoData: CompanyInfo = await companyInfoRes.json();
+
+      setCustomers(Array.isArray(customersResponse.data) ? customersResponse.data : []);
+      setProducts(Array.isArray(productsResponse.data) ? productsResponse.data : []);
+
+      setCompanyInfo(companyInfoData);
+      setShouldPrint(companyInfoData.defaultPrintOnSave);
+
+      setInvoiceNumberDisplay(generateNextInvoiceNumberForDisplay(latestNumericInvoice)); // Updated this line
+    } catch (error) {
+      console.error('Error fetching data:', error);
+      toast.error('Failed to load customers, products, or company info.');
+      setInvoiceNumberDisplay('INV1');
+      setCustomers([]);
+      setProducts([]);
+    }
+  };
+
+  fetchData();
 
     // Reset form state when component unmounts
     return () => {
