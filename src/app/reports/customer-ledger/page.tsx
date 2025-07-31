@@ -3,9 +3,10 @@
 import { Suspense } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Calendar, DollarSign, FileText, CreditCard, User, TrendingUp, TrendingDown } from 'lucide-react';
+import { DollarSign, FileText, CreditCard, User, TrendingUp, TrendingDown } from 'lucide-react';
 import prisma from '@/lib/prisma';
 import { format } from 'date-fns';
+import CustomerLedgerFilters from './components/CustomerLedgerFilters';
 
 // Types
 type LedgerTransaction = {
@@ -248,7 +249,7 @@ async function CustomerLedgerContent({
   const resolvedSearchParams = await searchParams;
   const [customers] = await Promise.all([getAllCustomers()]);
   
-  const customerId = resolvedSearchParams.customerId || customers[0]?.id || '';
+  const customerId = resolvedSearchParams.customerId || '';
   const today = new Date().toISOString().split('T')[0];
   const fromDate = resolvedSearchParams.fromDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // 30 days ago
   const toDate = resolvedSearchParams.toDate || today;
@@ -268,7 +269,7 @@ async function CustomerLedgerContent({
     <div className="container mx-auto py-10">
       <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between mb-8 gap-4">
         <div>
-          <h1 className="text-3xl font-bold">Customer Ledger Report</h1>
+          <h1 className="text-3xl font-bold">Ledger Report</h1>
           {data && (
             <p className="text-muted-foreground mt-1">
               {data.customerName} ({data.customerCode}) - {format(new Date(fromDate), 'MMM d, yyyy')} to {format(new Date(toDate), 'MMM d, yyyy')}
@@ -277,50 +278,12 @@ async function CustomerLedgerContent({
         </div>
         
         {/* Filters */}
-        <form method="GET" className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-          <div className="flex items-center gap-2">
-            <User className="h-4 w-4 text-muted-foreground" />
-            <select
-              name="customerId"
-              defaultValue={customerId}
-              className="px-3 py-2 border border-input rounded-md text-sm min-w-[200px]"
-              required
-            >
-              <option value="">Select Customer</option>
-              {customers.map((customer) => (
-                <option key={customer.id} value={customer.id}>
-                  {customer.name} ({customer.code})
-                </option>
-              ))}
-            </select>
-          </div>
-          
-          <div className="flex items-center gap-2">
-            <Calendar className="h-4 w-4 text-muted-foreground" />
-            <input
-              type="date"
-              name="fromDate"
-              defaultValue={fromDate}
-              className="px-3 py-2 border border-input rounded-md text-sm"
-              required
-            />
-            <span className="text-muted-foreground">to</span>
-            <input
-              type="date"
-              name="toDate"
-              defaultValue={toDate}
-              className="px-3 py-2 border border-input rounded-md text-sm"
-              required
-            />
-          </div>
-          
-          <button
-            type="submit"
-            className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm hover:bg-primary/90"
-          >
-            Generate Report
-          </button>
-        </form>
+        <CustomerLedgerFilters 
+          customers={customers}
+          customerId={customerId}
+          fromDate={fromDate}
+          toDate={toDate}
+        />
       </div>
 
       {error && (
@@ -389,11 +352,6 @@ async function CustomerLedgerContent({
           </div>
 
           {/* Transaction Details */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Transaction Details</CardTitle>
-            </CardHeader>
-            <CardContent>
               <div className="rounded-md border">
                 <Table>
                   <TableHeader>
@@ -474,8 +432,6 @@ async function CustomerLedgerContent({
                   </TableBody>
                 </Table>
               </div>
-            </CardContent>
-          </Card>
         </>
       )}
 
